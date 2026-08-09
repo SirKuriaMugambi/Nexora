@@ -9,12 +9,12 @@ import Logo from "@/components/logo"
 import Link from "next/link"
 import { ShieldCheck, ArrowRight, AlertCircle, MailCheck } from "lucide-react"
 
-const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
-  { value: "senior_accountant", label: "Senior Accountant" },
-  { value: "finance_manager", label: "Finance Manager" },
-  { value: "production_manager", label: "Production Manager" },
-  { value: "business_controller", label: "Business Controller" },
-]
+// Self-selected roles are never trusted — handle_new_user() (DB trigger) hardcodes
+// every new sign-up to the lowest-privilege role server-side regardless of what's
+// sent here. Elevating someone to finance_manager etc. is a manual, out-of-band
+// action by the system owner after verifying identity. See migration
+// 20260809090000_close_signup_privilege_escalation.sql for why.
+const DEFAULT_SIGNUP_ROLE: UserRole = "production_manager"
 
 export default function SignUpPage() {
   const router = useRouter()
@@ -24,7 +24,7 @@ export default function SignUpPage() {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [role, setRole] = useState<UserRole>("senior_accountant")
+  const role = DEFAULT_SIGNUP_ROLE
   const [error, setError] = useState<string | null>(null)
   const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -127,20 +127,10 @@ export default function SignUpPage() {
             />
           </div>
 
-          <div className="space-y-1">
-            <label className="text-[10px] font-mono text-zinc-400 uppercase block">Treasury Role / Designation</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as UserRole)}
-              className={`w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-zinc-400 ${buttonRadius}`}
-            >
-              {ROLE_OPTIONS.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <p className="text-[10px] text-zinc-400 leading-relaxed">
+            New accounts start with standard access. Elevated permissions (e.g. Finance
+            Manager) are granted manually by your administrator after verifying your identity.
+          </p>
 
           <div className="space-y-1">
             <label className="text-[10px] font-mono text-zinc-400 uppercase block">Corporate Email Address</label>
