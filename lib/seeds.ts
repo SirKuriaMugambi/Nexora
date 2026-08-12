@@ -77,6 +77,7 @@ export interface Employee {
   department: string       // e.g. "Finance", "Technical", "Production"
   bank_name?: string
   bank_account_number?: string
+  email?: string | null
 
   // Per-employee statutory exceptions — see lib/payroll-engine.ts file header.
   // All default to standard treatment; only set for employees Tony confirms.

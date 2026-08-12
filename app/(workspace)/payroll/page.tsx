@@ -7,7 +7,7 @@ import { useTheme } from "@/components/theme-provider"
 import {
   Wallet, CheckCircle2, FileSpreadsheet, Eye, Printer,
   Download, Upload, ChevronDown, ChevronUp, Building2,
-  Calculator, TrendingUp, Users, DollarSign, X, RotateCcw, IdCard, Lock
+  Calculator, TrendingUp, Users, DollarSign, X, RotateCcw, IdCard, Lock, Mail
 } from "lucide-react"
 import {
   computePayroll,
@@ -176,6 +176,12 @@ export default function PayrollPage() {
     new Date().toLocaleString("en-KE", { month: "long", year: "numeric" })
   )
   const apiMonth = useMemo(() => new Date().toISOString().slice(0, 7), [])
+
+  // Send-payslips-by-email state
+  const [sendingPayslips, setSendingPayslips] = useState(false)
+  const [sendPayslipsResult, setSendPayslipsResult] = useState<{
+    sent: string[]; skippedNoEmail: string[]; failed: Array<{ id: string; error: string }>
+  } | null>(null)
 
   // AX journal posting state
   const [postingToAx, setPostingToAx] = useState(false)
@@ -463,6 +469,33 @@ export default function PayrollPage() {
       )
     } catch (err) {
       setWorkflowError(err instanceof Error ? err.message : `Failed to generate ${routeByKind.label}.`)
+    }
+  }
+
+  async function handleSendPayslips() {
+    setSendingPayslips(true)
+    setSendPayslipsResult(null)
+    setWorkflowError(null)
+    try {
+      const response = await fetch("/api/payroll/send-payslips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: apiMonth }),
+      })
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to send payslips.")
+      }
+      setSendPayslipsResult(payload)
+      addAuditLog(
+        "PAYROLL PAYSLIPS EMAILED",
+        apiMonth,
+        `Emailed ${payload.sent.length} payslip(s) for the ${apiMonth} payroll run (${payload.skippedNoEmail.length} skipped, no email on file).`,
+      )
+    } catch (err) {
+      setWorkflowError(err instanceof Error ? err.message : "Failed to send payslips.")
+    } finally {
+      setSendingPayslips(false)
     }
   }
 
@@ -1165,7 +1198,22 @@ export default function PayrollPage() {
                   <Download className="h-3.5 w-3.5" /><span>{label}</span>
                 </button>
               ))}
+              <button
+                onClick={handleSendPayslips}
+                disabled={(runStatus !== "Approved" && runStatus !== "Posted") || sendingPayslips}
+                title={runStatus !== "Approved" && runStatus !== "Posted" ? "The run must be Approved first" : undefined}
+                className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${buttonRadius}`}
+              >
+                <Mail className="h-3.5 w-3.5" /><span>{sendingPayslips ? "Sending…" : "Email Payslips to Employees"}</span>
+              </button>
             </div>
+            {sendPayslipsResult && (
+              <p className="text-[9px] font-mono text-zinc-500">
+                Sent {sendPayslipsResult.sent.length}
+                {sendPayslipsResult.skippedNoEmail.length > 0 && `, skipped ${sendPayslipsResult.skippedNoEmail.length} (no email on file: ${sendPayslipsResult.skippedNoEmail.join(", ")})`}
+                {sendPayslipsResult.failed.length > 0 && `, failed ${sendPayslipsResult.failed.length}`}
+              </p>
+            )}
           </div>
         </div>
       )}

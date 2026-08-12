@@ -54,7 +54,7 @@ function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, acc
   const blank: Partial<Employee> = {
     id: "", name: "", national_id: "", kra_pin: "", sha_pin: "",
     grade: "Staff", cost_centre: "511", department: "Production",
-    bank_name: "", bank_account_number: "",
+    bank_name: "", bank_account_number: "", email: "",
     base_salary: 0, bonus_commission: 0, fringe_benefit: 0, transport_allowance: 0,
     arrears: 0, ot_other: 0, voluntary_pension: 0,
     advances: 0, helb: 0, company_loan: 0, bank_loan: 0, sacco: 0,
@@ -133,6 +133,7 @@ function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, acc
       <div className="grid grid-cols-2 gap-3">
         <Field label="Bank Name" name="bank_name" value={fieldValue("bank_name")} onChange={handle} />
         <Field label="Bank Account Number" name="bank_account_number" value={fieldValue("bank_account_number")} onChange={handle} />
+        <Field label="Email (for payslip delivery)" name="email" type="email" value={fieldValue("email")} onChange={handle} />
       </div>
 
       <p className="text-[9px] font-mono uppercase text-zinc-400 pt-1 border-t dark:border-zinc-800">Earnings</p>
