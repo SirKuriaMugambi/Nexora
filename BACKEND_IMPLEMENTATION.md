@@ -477,10 +477,10 @@ The application will leverage `.env.local` variables to initialize connection bi
 
 ### 5.1 Environment Variables
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://lynksuvhhkltbappqsii.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_5TJqvjyoX-ZZd708WW-Wmw_fFtCT9x3
-SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-DATABASE_URL=postgresql://postgres.lynksuvhhkltbappqsii:Eex3328r3ZCKMTcD@aws-0-eu-west-1.pooler.supabase.com:6543/postgres
+NEXT_PUBLIC_SUPABASE_URL=<your-project-url>
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<your-publishable-key>
+SERVICE_ROLE_KEY=<your-service-role-key>
+DATABASE_URL=<your-database-connection-string>
 ```
 
 ### 5.2 Next.js Supabase Client Factories (as actually implemented)
