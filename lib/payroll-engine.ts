@@ -400,7 +400,22 @@ export function buildPayrollVarianceReport(employees: EmployeeSummary[]): Payrol
 }
 
 // ── CSV export helpers ────────────────────────────────────────────────────────
-export function buildMasterRegisterCSV(employees: EmployeeSummary[]): string {
+// Every column the master register needs — matches the full Employee shape
+// the payroll page already holds (from GET /api/payroll), so the export can
+// mirror Tony's Excel register column-for-column with no blanks.
+export interface MasterRegisterRow {
+  id: string; name: string; kra_pin: string
+  base_salary: number; bonus_commission: number; fringe_benefit: number
+  transport_allowance: number; arrears: number; ot_other: number
+  gross_salary: number; voluntary_pension: number; defined_pension_ee: number
+  nssf_t1: number; nssf_t2: number; shif: number
+  taxable_pay: number; gross_paye: number; ahl: number
+  advances: number; helb: number; company_loan: number; bank_loan: number; sacco: number
+  personal_relief: number; nhif_relief: number; ahl_relief: number
+  net_paye: number; deductions: number; net_salary: number; defined_pension_er: number
+}
+
+export function buildMasterRegisterCSV(employees: MasterRegisterRow[]): string {
   const headers = [
     "Staff No","Name","KRA PIN","Basic Salary","Bonus/Comm","Fringe Benefit",
     "Transport/Hse Allowance","Arrears","OT/Others","Gross Salary",
@@ -409,18 +424,22 @@ export function buildMasterRegisterCSV(employees: EmployeeSummary[]): string {
     "Company Loan","Bank Loan","SACCO","Personal Relief","NHIF Relief",
     "AHL Relief","Net PAYE","Total Deductions","Net Pay","Employer Pension",
   ]
+  const n = (v: number | null | undefined) => (v ?? 0).toFixed(2)
   const rows = employees.map(e => [
     e.id, e.name, e.kra_pin,
-    // placeholder columns — real values come from the full Employee object
-    "", "", "", "", "", "",
-    e.gross_salary, "", e.defined_pension_ee,
-    e.nssf_t1, e.nssf_t2, e.shif,
-    "", "", e.ahl,
-    e.advances, e.helb, e.company_loan, e.bank_loan, e.sacco,
-    "", "", "",
-    e.net_paye, "", e.net_salary, e.defined_pension_er,
+    n(e.base_salary), n(e.bonus_commission), n(e.fringe_benefit),
+    n(e.transport_allowance), n(e.arrears), n(e.ot_other), n(e.gross_salary),
+    n(e.voluntary_pension), n(e.defined_pension_ee),
+    n(e.nssf_t1), n(e.nssf_t2), n(e.shif),
+    n(e.taxable_pay), n(e.gross_paye), n(e.ahl),
+    n(e.advances), n(e.helb), n(e.company_loan), n(e.bank_loan), n(e.sacco),
+    n(e.personal_relief), n(e.nhif_relief), n(e.ahl_relief),
+    n(e.net_paye), n(e.deductions), n(e.net_salary), n(e.defined_pension_er),
   ])
-  return [headers, ...rows].map(r => r.join(",")).join("\n")
+  // Quote every cell — names like "KURIA, CALEB" contain commas.
+  return [headers, ...rows]
+    .map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    .join("\n")
 }
 
 export function buildGLPostingCSV(gl: GLPostingSummary, month: string): string {

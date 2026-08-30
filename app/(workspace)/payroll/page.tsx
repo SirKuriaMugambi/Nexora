@@ -411,7 +411,10 @@ export default function PayrollPage() {
   }
 
   function handleExportRegister() {
-    const csv = buildMasterRegisterCSV(summaries)
+    // Full Employee rows, not the slim summaries — the register export fills
+    // every column (basic, bonus, taxable pay, reliefs, ...), mirroring
+    // Tony's Excel register with no blank placeholders.
+    const csv = buildMasterRegisterCSV(employees)
     downloadCSV(csv, `chrysal-payroll-register-${payMonth.replace(" ", "-")}.csv`)
   }
 
