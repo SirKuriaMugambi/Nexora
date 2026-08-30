@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useFinOps } from "@/components/finops-provider"
 import { useTheme } from "@/components/theme-provider"
 import {
-  Wallet, CheckCircle2, FileSpreadsheet, Eye, Printer,
+  Wallet, CheckCircle2, FileSpreadsheet, Eye,
   Download, Upload, ChevronDown, ChevronUp, Building2,
   Calculator, TrendingUp, Users, DollarSign, X, RotateCcw, IdCard, Lock, Mail
 } from "lucide-react"
@@ -14,7 +14,6 @@ import {
   buildGLPosting,
   buildCostCentreBreakdown,
   buildMasterRegisterCSV,
-  buildGLPostingCSV,
   type EmployeeSummary,
 } from "@/lib/payroll-engine"
 import type { Employee } from "@/lib/seeds"
@@ -66,32 +65,48 @@ const BANDS = [
 ]
 
 // ── PAYSLIP PANEL ────────────────────────────────────────────────────────────
-function PayslipPanel({ emp, onClose, buttonRadius }: {
-  emp: Employee; onClose: () => void; buttonRadius: string
+function PayslipPanel({ emp, onClose }: {
+  emp: Employee; onClose: () => void
 }) {
-  const rows: [string, string, string][] = [
-    ["Basic Pay", `KES ${fmt(emp.base_salary)}`, ""],
-    ...(emp.bonus_commission > 0 ? [["Bonus/Commission", `KES ${fmt(emp.bonus_commission)}`, ""] as [string,string,string]] : []),
-    ...(emp.fringe_benefit > 0 ? [["Fringe Benefit (FBT)", `KES ${fmt(emp.fringe_benefit)}`, ""] as [string,string,string]] : []),
-    ...(emp.transport_allowance > 0 ? [["Transport Allowance", `KES ${fmt(emp.transport_allowance)}`, ""] as [string,string,string]] : []),
-    ...(emp.ot_other > 0 ? [["OT / Other", `KES ${fmt(emp.ot_other)}`, ""] as [string,string,string]] : []),
-    ["", `GROSS: KES ${fmt(emp.gross_salary ?? 0)}`, ""],
-    ["NSSF Tier I", `–KES ${fmt(emp.nssf_t1 ?? 420)}`, "deduction"],
-    ["NSSF Tier II", `–KES ${fmt(emp.nssf_t2 ?? 1740)}`, "deduction"],
-    ["SHIF (2.75%)", `–KES ${fmt(emp.shif ?? emp.nhif)}`, "deduction"],
-    ["AHL/Housing Levy (1.5%)", `–KES ${fmt(emp.ahl ?? 0)}`, "deduction"],
-    ["Pension EE (5%)", `–KES ${fmt(emp.defined_pension_ee ?? 0)}`, "deduction"],
-    ["KRA PAYE", `–KES ${fmt(emp.net_paye ?? emp.paye)}`, "tax"],
-    ...(emp.advances > 0 ? [["Salary Advance", `–KES ${fmt(emp.advances)}`, "deduction"] as [string,string,string]] : []),
-    ...(emp.helb > 0 ? [["HELB", `–KES ${fmt(emp.helb)}`, "deduction"] as [string,string,string]] : []),
-    ...(emp.company_loan > 0 ? [["Company Loan", `–KES ${fmt(emp.company_loan)}`, "deduction"] as [string,string,string]] : []),
-    ...(emp.bank_loan > 0 ? [["Bank Loan", `–KES ${fmt(emp.bank_loan)}`, "deduction"] as [string,string,string]] : []),
-    ...(emp.sacco > 0 ? [["SACCO", `–KES ${fmt(emp.sacco)}`, "deduction"] as [string,string,string]] : []),
+  // Mirrors the real Chrysal payslip layout (same sectioned format as the
+  // emailed PDF in lib/payroll-backend.ts): Earnings / Deductions / Net Pay /
+  // PAYE Information with green section headers and per-section subtotals.
+  // Figures stay on the engine's verified Nov-2024 basis (taxable pay =
+  // gross − NSSF − pension), matching the PDF — format matched, calculation
+  // basis intentionally left as-is per instruction.
+  const fmt2 = (n: number) => n.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  const earnings: [string, number][] = [
+    ["Basic Pay", emp.base_salary],
+    ...(emp.bonus_commission > 0 ? [["Bonus / Commission", emp.bonus_commission] as [string, number]] : []),
+    ...(emp.transport_allowance > 0 ? [["Transport Allowance", emp.transport_allowance] as [string, number]] : []),
+    ...(emp.fringe_benefit > 0 ? [["Fringe Benefit (FBT)", emp.fringe_benefit] as [string, number]] : []),
+    ...(emp.arrears > 0 ? [["Arrears", emp.arrears] as [string, number]] : []),
+    ...(emp.ot_other > 0 ? [["OT / Other", emp.ot_other] as [string, number]] : []),
   ]
 
-  function print() {
-    window.print()
-  }
+  const deductions: [string, number][] = [
+    ["PAYE", emp.net_paye ?? emp.paye],
+    ["NSSF (Tier I)", emp.nssf_t1 ?? 420],
+    ["NSSF (Tier II)", emp.nssf_t2 ?? 1740],
+    ["SHIF", emp.shif ?? emp.nhif],
+    ["Housing Levy", emp.ahl ?? 0],
+    ["Pension Contribution", emp.defined_pension_ee ?? 0],
+    ...(emp.voluntary_pension > 0 ? [["Voluntary Pension", emp.voluntary_pension] as [string, number]] : []),
+    ...(emp.advances > 0 ? [["Advances", emp.advances] as [string, number]] : []),
+    ...(emp.helb > 0 ? [["HELB", emp.helb] as [string, number]] : []),
+    ...(emp.company_loan > 0 ? [["Company Loan", emp.company_loan] as [string, number]] : []),
+    ...(emp.bank_loan > 0 ? [["Bank Loan", emp.bank_loan] as [string, number]] : []),
+    ...(emp.sacco > 0 ? [["SACCO", emp.sacco] as [string, number]] : []),
+  ]
+  const deductionsTotal = deductions.reduce((s, [, amount]) => s + amount, 0)
+
+  const sectionHeader = "font-bold text-emerald-700 dark:text-emerald-500"
+  const row = (label: string, amount: number, key: string, indent = false) => (
+    <div key={key} className={`flex justify-between ${indent ? "pl-3" : ""}`}>
+      <span>{label}</span><span>{fmt2(amount)}</span>
+    </div>
+  )
 
   return (
     <div className="space-y-4 text-[11px]">
@@ -101,55 +116,51 @@ function PayslipPanel({ emp, onClose, buttonRadius }: {
       </div>
 
       <div className="font-mono p-4 border border-zinc-150 dark:border-zinc-900 bg-zinc-50/50 dark:bg-zinc-900/10 space-y-3">
-        <div className="text-center pb-2 border-b dark:border-zinc-800">
+        <div className="text-center pb-1">
           <h4 className="font-bold text-zinc-900 dark:text-zinc-50">CHRYSAL AFRICA LTD</h4>
-          <span className="text-[9px] text-zinc-400">P.O. Box 44023-00100 Nairobi | Pay Month: {new Date().toLocaleString("en-KE", { month: "long", year: "numeric" })}</span>
+          <span className={`text-[10px] ${sectionHeader}`}>Payslip</span>
         </div>
 
         <div className="text-[9px] space-y-0.5 text-zinc-500">
-          <div><strong>Staff No:</strong> {emp.id}</div>
+          <div><strong>Employee No.:</strong> {emp.id}</div>
           <div><strong>Name:</strong> {emp.name}</div>
-          <div><strong>KRA PIN:</strong> {emp.kra_pin ?? "—"}</div>
-          <div><strong>Grade:</strong> {emp.grade} | <strong>Dept:</strong> {emp.department ?? "—"} | <strong>CC:</strong> {emp.cost_centre ?? "—"}</div>
+          <div><strong>Pay Period:</strong> {new Date().toLocaleString("en-KE", { month: "long", year: "numeric" })}</div>
+          <div><strong>Admin. Unit:</strong> {emp.department ?? "—"}</div>
+          <div><strong>Currency:</strong> KES</div>
         </div>
 
-        <div className="border-t dark:border-zinc-800 pt-2 space-y-1 text-[10px]">
-          {rows.map(([label, value, type], i) => (
-            label === "" ? (
-              <div key={i} className="flex justify-between font-bold border-t border-b dark:border-zinc-800 py-1 mt-1">
-                <span>Gross Salary</span><span>{value.replace("GROSS: ", "")}</span>
-              </div>
-            ) : (
-              <div key={i} className={`flex justify-between ${type === "tax" ? "text-rose-600" : type === "deduction" ? "text-rose-400" : ""}`}>
-                <span>{label}</span><span>{value}</span>
-              </div>
-            )
-          ))}
+        <div className="space-y-1 text-[10px]">
+          <div className={sectionHeader}>Earnings:</div>
+          {earnings.map(([label, amount], i) => row(label, amount, `earn-${i}`))}
+          <div className="flex justify-between font-bold border-t dark:border-zinc-800 pt-0.5">
+            <span /><span>{fmt2(emp.gross_salary ?? 0)}</span>
+          </div>
         </div>
 
-        <div className="flex justify-between text-sm font-bold text-emerald-600 border-t dark:border-zinc-700 pt-2">
-          <span>NET SALARY:</span>
-          <span>KES {fmt(emp.net_salary)}</span>
+        <div className="space-y-1 text-[10px]">
+          <div className={sectionHeader}>Deductions:</div>
+          {deductions.map(([label, amount], i) => row(label, amount, `ded-${i}`))}
+          <div className="flex justify-between font-bold border-t dark:border-zinc-800 pt-0.5">
+            <span /><span>{fmt2(deductionsTotal)}</span>
+          </div>
         </div>
 
-        {/* Tax breakdown mini */}
-        <div className="text-[8px] text-zinc-400 border-t dark:border-zinc-800 pt-2 space-y-0.5">
-          <div className="font-bold text-zinc-500 uppercase">PAYE Computation</div>
-          <div className="flex justify-between"><span>Taxable Pay</span><span>KES {fmt(emp.taxable_pay ?? 0)}</span></div>
-          <div className="flex justify-between"><span>Gross PAYE</span><span>KES {fmt(emp.gross_paye ?? 0)}</span></div>
-          <div className="flex justify-between"><span>Less Personal Relief</span><span>–KES {fmt(emp.personal_relief ?? 2400)}</span></div>
-          <div className="flex justify-between"><span>Less AHL Relief</span><span>–KES {fmt(emp.ahl_relief ?? 0)}</span></div>
-          <div className="flex justify-between font-bold text-rose-500"><span>Net PAYE</span><span>KES {fmt(emp.net_paye ?? emp.paye)}</span></div>
+        <div className="flex justify-between text-sm font-bold border-t dark:border-zinc-700 pt-2">
+          <span>Net Pay</span>
+          <span>{fmt2(emp.net_salary)}</span>
         </div>
-      </div>
 
-      <div className="flex gap-2">
-        <button
-          onClick={print}
-          className={`flex-1 py-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 font-mono text-[9px] uppercase tracking-wider flex items-center justify-center gap-1 ${buttonRadius}`}
-        >
-          <Printer className="h-3.5 w-3.5" /><span>Print Payslip</span>
-        </button>
+        <div className="space-y-1 text-[10px] border-t dark:border-zinc-800 pt-2">
+          <div className={sectionHeader}>PAYE Information:</div>
+          {row("Total Earnings", emp.gross_salary ?? 0, "paye-gross")}
+          <div>Less Pre-Tax Deductions:</div>
+          {row("NSSF (Tier I)", emp.nssf_t1 ?? 420, "paye-nssf1", true)}
+          {row("NSSF (Tier II)", emp.nssf_t2 ?? 1740, "paye-nssf2", true)}
+          {row("Pension Contribution", emp.defined_pension_ee ?? 0, "paye-pension", true)}
+          <div className="flex justify-between font-bold"><span>Taxable Pay</span><span>{fmt2(emp.taxable_pay ?? 0)}</span></div>
+          {row("Personal Relief", emp.personal_relief ?? 2400, "paye-relief")}
+          {row("PAYE", emp.net_paye ?? emp.paye, "paye-net")}
+        </div>
       </div>
     </div>
   )
@@ -404,9 +415,31 @@ export default function PayrollPage() {
     downloadCSV(csv, `chrysal-payroll-register-${payMonth.replace(" ", "-")}.csv`)
   }
 
-  function handleExportGL() {
-    const csv = buildGLPostingCSV(glPosting, payMonth)
-    downloadCSV(csv, `chrysal-ax-gl-posting-${payMonth.replace(" ", "-")}.csv`)
+  // Downloads the real balanced Dr/Cr journal (lib/journal-builder.ts) — the
+  // same one "Post to AX" builds — rather than the older flat summary, so
+  // there's an actual file ready to hand an AX admin for manual import while
+  // we wait on live API access. Read-only: doesn't call the AX client or
+  // change the run's status, unlike handlePostToAx below.
+  async function handleExportGL() {
+    try {
+      const response = await fetch(`/api/payroll/gl-journal?month=${apiMonth}`)
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload.error ?? "Failed to generate the AX GL journal.")
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url; a.download = `chrysal-ax-gl-journal-${apiMonth}.csv`; a.click()
+      URL.revokeObjectURL(url)
+      addAuditLog(
+        "AX GL JOURNAL DOWNLOADED",
+        apiMonth,
+        `Downloaded the balanced Dr/Cr GL journal CSV for the ${apiMonth} payroll run.`,
+      )
+    } catch (err) {
+      setWorkflowError(err instanceof Error ? err.message : "Failed to generate the AX GL journal.")
+    }
   }
 
   async function handlePostToAx() {
@@ -842,7 +875,6 @@ export default function PayrollPage() {
                 <PayslipPanel
                   emp={employees[activeEmpIdx]}
                   onClose={() => setActiveEmpIdx(null)}
-                  buttonRadius={buttonRadius}
                 />
               )}
             </div>

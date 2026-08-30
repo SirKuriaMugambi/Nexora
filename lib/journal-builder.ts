@@ -176,3 +176,44 @@ export function buildPayrollJournal(
     isBalanced: Math.abs(totalDebit - totalCredit) < 0.01,
   }
 }
+
+// code -> "SOURCED" | "ASSUMPTION", so the export can flag which lines use a
+// real Chrysal account number vs. one invented to close a gap in the
+// original mock. See lib/gl-accounts-config.ts for the full provenance notes.
+const PROVENANCE_BY_CODE: Record<string, string> = Object.fromEntries(
+  Object.values(PAYROLL_GL_ACCOUNTS).map((account) => [account.code, account.provenance]),
+)
+
+/**
+ * CSV export of a built journal — one row per Dr/Cr line, ready to hand to
+ * an AX admin for file-based import (or to eyeball before wiring up the
+ * live API). Every row is tagged SOURCED or ASSUMPTION so it's obvious at a
+ * glance which account codes still need Tony's confirmation before this is
+ * used for a real posting — do not remove that column even once some codes
+ * are confirmed, since it'll take several rounds to close them all out.
+ */
+export function buildPayrollJournalCSV(journal: PayrollJournal): string {
+  const rows: string[][] = [
+    [`Chrysal Africa Ltd — AX Payroll Journal — ${journal.journalName}`],
+    [`Currency: ${journal.currency}`, `Balanced: ${journal.isBalanced ? "YES" : "NO — DO NOT POST"}`],
+    [],
+    ["Line", "Account Code", "Account Name", "Debit", "Credit", "Department", "Cost Centre", "Description", "Account Code Status"],
+    ...journal.lines.map((line) => [
+      String(line.lineNumber),
+      line.accountCode,
+      line.accountName,
+      line.debit ? line.debit.toFixed(2) : "",
+      line.credit ? line.credit.toFixed(2) : "",
+      line.dimension.department,
+      line.dimension.costCentre,
+      line.description,
+      PROVENANCE_BY_CODE[line.accountCode] === "ASSUMPTION"
+        ? "PLACEHOLDER — confirm with Tony before real posting"
+        : "Confirmed from Chrysal's reference file",
+    ]),
+    [],
+    ["", "", "TOTAL", journal.totalDebit.toFixed(2), journal.totalCredit.toFixed(2)],
+  ]
+
+  return rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n")
+}
