@@ -148,7 +148,9 @@ export async function GET(request: Request) {
   })
 
   const journal = buildPayrollJournal(month, employeeInputs)
-  const csv = buildPayrollJournalCSV(journal)
+  // Excel opens a BOM-less CSV as Windows-1252, which mangles the em-dashes
+  // in the title/description columns ("â€""). The BOM forces UTF-8.
+  const csv = "﻿" + buildPayrollJournalCSV(journal)
 
   return new NextResponse(csv, {
     status: 200,

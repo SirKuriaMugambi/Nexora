@@ -27,7 +27,9 @@ function fmtD(n: number) {
   return n.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 function downloadCSV(content: string, filename: string) {
-  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" })
+  // Leading BOM so Excel reads the file as UTF-8 rather than Windows-1252
+  // (without it, em-dashes and accented names render as mojibake).
+  const blob = new Blob(["﻿" + content], { type: "text/csv;charset=utf-8;" })
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
   a.href = url; a.download = filename; a.click()
