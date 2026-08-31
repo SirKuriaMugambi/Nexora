@@ -11,11 +11,11 @@ import {
 } from "lucide-react"
 import {
   computePayroll,
-  buildGLPosting,
   buildCostCentreBreakdown,
   buildMasterRegisterCSV,
   type EmployeeSummary,
 } from "@/lib/payroll-engine"
+import { buildPayrollJournal } from "@/lib/journal-builder"
 import type { Employee } from "@/lib/seeds"
 import type { ImportPreviewResult } from "@/app/api/payroll/import/route"
 
@@ -251,6 +251,35 @@ export default function PayrollPage() {
   // Aggregated data
   const summaries = useMemo(() => employees.map(toSummary), [employees])
 
+  // The real Dr/Cr journal, built client-side from the same pure function the
+  // server uses for Post-to-AX and the CSV download — so the GL tab shows the
+  // actual balanced entry before posting, not a separate hand-written summary.
+  const previewJournal = useMemo(
+    () =>
+      buildPayrollJournal(
+        apiMonth,
+        employees.map((emp) => ({
+          employee: { id: emp.id, department: emp.department, cost_centre: emp.cost_centre },
+          inputs: {
+            base_salary: emp.base_salary,
+            bonus_commission: emp.bonus_commission,
+            fringe_benefit: emp.fringe_benefit,
+            transport_allowance: emp.transport_allowance,
+            arrears: emp.arrears,
+            ot_other: emp.ot_other,
+            voluntary_pension: emp.voluntary_pension,
+            advances: emp.advances,
+            helb: emp.helb,
+            company_loan: emp.company_loan,
+            bank_loan: emp.bank_loan,
+            sacco: emp.sacco,
+          },
+          result: { ...emp, total_deductions: emp.deductions },
+        })),
+      ),
+    [employees, apiMonth],
+  )
+
   const totals = useMemo(() => {
     return employees.reduce((acc, emp) => {
       acc.headcount += 1
@@ -267,7 +296,6 @@ export default function PayrollPage() {
     }, { headcount: 0, gross: 0, nssf: 0, shif: 0, ahl: 0, paye: 0, pension_ee: 0, pension_er: 0, deductions: 0, net: 0 })
   }, [employees])
 
-  const glPosting = useMemo(() => buildGLPosting(summaries), [summaries])
   const ccBreakdown = useMemo(() => buildCostCentreBreakdown(summaries), [summaries])
 
   // Calculator result
@@ -978,89 +1006,42 @@ export default function PayrollPage() {
                 <span className={`text-[9px] font-mono px-2 py-0.5 ${accentBadge}`}>{payMonth}</span>
               </div>
 
+              {/* Rendered from the same buildPayrollJournal() the Post-to-AX
+                  action and the CSV download use, so what's on screen is the
+                  real balanced journal. The previous version of this panel
+                  hardcoded its own Dr/Cr rows and printed one total in BOTH
+                  columns, so it always looked balanced while the credit lines
+                  actually fell ~2.03M short and reused account 11500 twice. */}
               <div className="font-mono text-[11px] space-y-0">
-                {/* Header */}
                 <div className="flex justify-between text-[9px] uppercase text-zinc-400 border-b dark:border-zinc-800 pb-1.5 mb-1.5">
-                  <span>Description</span>
+                  <span>Account</span>
                   <span className="grid grid-cols-2 gap-8 text-right w-48"><span>DR</span><span>CR</span></span>
                 </div>
-                {/* Salary expense DR */}
-                <div className="flex justify-between py-1">
-                  <span>Dr: Salary &amp; Wages Exp (41000)</span>
-                  <span className="grid grid-cols-2 gap-8 text-right w-48">
-                    <span>{fmtD(glPosting.gross_salaries)}</span><span className="text-zinc-400">—</span>
-                  </span>
-                </div>
-                <div className="flex justify-between py-1 text-zinc-500">
-                  <span>Dr: AHL / Housing Levy (41770)</span>
-                  <span className="grid grid-cols-2 gap-8 text-right w-48">
-                    <span>{fmtD(glPosting.ahl_total)}</span><span className="text-zinc-400">—</span>
-                  </span>
-                </div>
-                <div className="flex justify-between py-1 text-zinc-500">
-                  <span>Dr: NSSF Contributions (41770)</span>
-                  <span className="grid grid-cols-2 gap-8 text-right w-48">
-                    <span>{fmtD(glPosting.nssf_total)}</span><span className="text-zinc-400">—</span>
-                  </span>
-                </div>
-                <div className="flex justify-between py-1 text-zinc-500">
-                  <span>Dr: NITA (41770)</span>
-                  <span className="grid grid-cols-2 gap-8 text-right w-48">
-                    <span>{fmtD(glPosting.nita_total)}</span><span className="text-zinc-400">—</span>
-                  </span>
-                </div>
-                <div className="flex justify-between py-1 text-zinc-500">
-                  <span>Dr: Pension Fund EE (41800)</span>
-                  <span className="grid grid-cols-2 gap-8 text-right w-48">
-                    <span>{fmtD(glPosting.pension_total)}</span><span className="text-zinc-400">—</span>
-                  </span>
-                </div>
 
-                {/* Credits */}
-                <div className="border-t dark:border-zinc-800 pt-1.5 mt-1.5">
-                  <div className="flex justify-between py-1 text-emerald-600">
-                    <span>Cr: Net Salaries Payable (11500)</span>
-                    <span className="grid grid-cols-2 gap-8 text-right w-48">
-                      <span className="text-zinc-400">—</span>
-                      <span>{fmtD(glPosting.net_salaries)}</span>
+                {previewJournal.lines.map((line) => (
+                  <div key={line.lineNumber} className={`flex justify-between py-1 gap-3 ${line.debit > 0 ? "" : "text-zinc-500"}`}>
+                    <span className="min-w-0">
+                      <span className="block truncate">
+                        {line.debit > 0 ? "Dr" : "Cr"}: {line.accountName} ({line.accountCode})
+                      </span>
+                      <span className="block text-[9px] text-zinc-400">
+                        {line.dimension.department}/{line.dimension.costCentre}
+                      </span>
+                    </span>
+                    <span className="grid grid-cols-2 gap-8 text-right w-48 shrink-0">
+                      <span>{line.debit > 0 ? fmtD(line.debit) : <span className="text-zinc-400">—</span>}</span>
+                      <span>{line.credit > 0 ? fmtD(line.credit) : <span className="text-zinc-400">—</span>}</span>
                     </span>
                   </div>
-                  <div className="flex justify-between py-1 text-rose-500">
-                    <span>Cr: KRA PAYE Payable (11500)</span>
-                    <span className="grid grid-cols-2 gap-8 text-right w-48">
-                      <span className="text-zinc-400">—</span>
-                      <span>{fmtD(totals.paye)}</span>
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 text-zinc-500">
-                    <span>Cr: NSSF Payable (18150)</span>
-                    <span className="grid grid-cols-2 gap-8 text-right w-48">
-                      <span className="text-zinc-400">—</span>
-                      <span>{fmtD(totals.nssf)}</span>
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 text-zinc-500">
-                    <span>Cr: SHIF Payable (18150)</span>
-                    <span className="grid grid-cols-2 gap-8 text-right w-48">
-                      <span className="text-zinc-400">—</span>
-                      <span>{fmtD(totals.shif)}</span>
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 text-zinc-500">
-                    <span>Cr: AHL Payable (18150)</span>
-                    <span className="grid grid-cols-2 gap-8 text-right w-48">
-                      <span className="text-zinc-400">—</span>
-                      <span>{fmtD(totals.ahl)}</span>
-                    </span>
-                  </div>
-                </div>
+                ))}
 
-                {/* Totals row */}
                 <div className="border-t-2 dark:border-zinc-700 pt-2 mt-2 flex justify-between font-bold">
-                  <span>Total Gross Payroll</span>
-                  <span className="grid grid-cols-2 gap-8 text-right w-48">
-                    <span>{fmtD(glPosting.total_gross_payroll)}</span>
-                    <span>{fmtD(glPosting.total_gross_payroll)}</span>
+                  <span className={previewJournal.isBalanced ? "text-emerald-600" : "text-rose-500"}>
+                    Total {previewJournal.isBalanced ? "(Balanced ✓)" : "(NOT BALANCED ✗)"}
+                  </span>
+                  <span className="grid grid-cols-2 gap-8 text-right w-48 shrink-0">
+                    <span>{fmtD(previewJournal.totalDebit)}</span>
+                    <span>{fmtD(previewJournal.totalCredit)}</span>
                   </span>
                 </div>
               </div>
