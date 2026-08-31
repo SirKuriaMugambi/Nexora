@@ -383,6 +383,7 @@ export default function PayrollPage() {
   // Computes and saves this month's run (always lands as "Draft" — see
   // POST /api/payroll). This can be re-run freely to correct a Draft.
   async function computeAndSaveRun() {
+    setWorkflowError(null)
     try {
       const response = await fetch("/api/payroll", {
         method: "POST",
@@ -390,8 +391,12 @@ export default function PayrollPage() {
         body: JSON.stringify({ month: apiMonth, employees }),
       })
 
+      // Surface the server's actual reason — this used to throw away the
+      // response body and log a generic "please verify the API is available",
+      // which hid a real save failure behind a plausible-looking message.
       if (!response.ok) {
-        throw new Error("Payroll save failed")
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload.error ?? `Payroll save failed (HTTP ${response.status}).`)
       }
 
       setRunStatus("Draft")
@@ -401,13 +406,10 @@ export default function PayrollPage() {
         `Computed and saved a Draft payroll run for ${employees.length} staff. Gross: ${fmt(totals.gross)}, PAYE: ${fmt(totals.paye)}.`,
         totals.gross
       )
-    } catch {
-      addAuditLog(
-        "PAYROLL COMPUTE FAILED",
-        apiMonth,
-        `Payroll computation attempt failed for ${employees.length} staff. Please verify the Supabase-backed payroll API is available.`,
-        totals.gross
-      )
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Payroll save failed."
+      setWorkflowError(message)
+      addAuditLog("PAYROLL COMPUTE FAILED", apiMonth, message, totals.gross)
     }
   }
 
@@ -1052,6 +1054,13 @@ export default function PayrollPage() {
               >
                 <Download className="h-3.5 w-3.5" /><span>Download AX GL CSV</span>
               </button>
+
+              {/* The shared error banner sits at the top of the page, far
+                  off-screen from here — repeat it next to the button that
+                  triggered it so a failed download isn't silent. */}
+              {workflowError && (
+                <p className="text-[10px] font-mono text-rose-500 leading-relaxed">{workflowError}</p>
+              )}
             </div>
 
             {/* Cost Centre breakdown */}

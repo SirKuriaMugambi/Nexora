@@ -3,6 +3,7 @@ import { initialEmployees } from "@/lib/seeds"
 import { buildPayrollVarianceReport, computePayroll, type EmployeeSummary } from "@/lib/payroll-engine"
 import { createSupabaseAdminClient } from "@/lib/supabase-server"
 import { requireRole } from "@/lib/supabase"
+import { KENYA_PAYROLL_RULES_2024 as RULES } from "@/lib/payroll-rules-config"
 
 function normalizeEmployeeRow(row: Record<string, unknown>) {
   const input = {
@@ -132,8 +133,24 @@ export async function POST(request: Request) {
   const employees = body.employees ?? []
   const month = body.month ?? new Date().toISOString().slice(0, 7)
 
-  const payrollRun = employees.map((employee) => {
-    const result = computePayroll({
+  // Refuse to create an empty run. Previously this happily saved a Draft with
+  // zero register entries (e.g. if the page posted before its employee list
+  // had loaded), which then passed Submit/Approve and only surfaced later as
+  // "No payroll register entries found" when generating payslips or the journal.
+  if (employees.length === 0) {
+    return NextResponse.json(
+      { error: "No employees supplied — refusing to save an empty payroll run." },
+      { status: 400 },
+    )
+  }
+
+  // Keep each employee's FULL computed result — the register entries below
+  // persist taxable_pay/gross_paye/reliefs, which the payslip PDF and iTax
+  // export read back. (These used to be written as hardcoded 0/2400
+  // placeholders, so every generated payslip showed Taxable Pay 0.)
+  const computed = employees.map((employee) => ({
+    employee,
+    result: computePayroll({
       base_salary: employee.base_salary,
       bonus_commission: employee.bonus_commission,
       fringe_benefit: employee.fringe_benefit,
@@ -151,29 +168,29 @@ export async function POST(request: Request) {
       pension_rate_override: employee.pension_rate_override,
       nssf_t2_override: employee.nssf_t2_override,
       ahl_relief_override: employee.ahl_relief_override,
-    })
+    }),
+  }))
 
-    return {
-      id: employee.id,
-      name: employee.name,
-      kra_pin: employee.kra_pin,
-      cost_centre: employee.cost_centre ?? "511",
-      gross_salary: result.gross_salary,
-      net_paye: result.net_paye,
-      nssf_t1: result.nssf_t1,
-      nssf_t2: result.nssf_t2,
-      shif: result.shif,
-      ahl: result.ahl,
-      defined_pension_ee: result.defined_pension_ee,
-      defined_pension_er: result.defined_pension_er,
-      helb: employee.helb,
-      company_loan: employee.company_loan,
-      bank_loan: employee.bank_loan,
-      sacco: employee.sacco,
-      advances: employee.advances,
-      net_salary: result.net_salary,
-    } satisfies EmployeeSummary
-  })
+  const payrollRun = computed.map(({ employee, result }) => ({
+    id: employee.id,
+    name: employee.name,
+    kra_pin: employee.kra_pin,
+    cost_centre: employee.cost_centre ?? "511",
+    gross_salary: result.gross_salary,
+    net_paye: result.net_paye,
+    nssf_t1: result.nssf_t1,
+    nssf_t2: result.nssf_t2,
+    shif: result.shif,
+    ahl: result.ahl,
+    defined_pension_ee: result.defined_pension_ee,
+    defined_pension_er: result.defined_pension_er,
+    helb: employee.helb,
+    company_loan: employee.company_loan,
+    bank_loan: employee.bank_loan,
+    sacco: employee.sacco,
+    advances: employee.advances,
+    net_salary: result.net_salary,
+  } satisfies EmployeeSummary))
 
   const variance = buildPayrollVarianceReport(payrollRun)
 
@@ -185,42 +202,60 @@ export async function POST(request: Request) {
       .select("id")
       .single()
 
-    if (!runError && runData?.id) {
-      const entries = payrollRun.map((employee) => ({
-        payroll_run_id: runData.id,
-        employee_id: employee.id,
-        basic_salary: employees.find((entry) => entry.id === employee.id)?.base_salary ?? 0,
-        bonus_commission: employees.find((entry) => entry.id === employee.id)?.bonus_commission ?? 0,
-        fringe_benefit: employees.find((entry) => entry.id === employee.id)?.fringe_benefit ?? 0,
-        transport_allowance: employees.find((entry) => entry.id === employee.id)?.transport_allowance ?? 0,
-        arrears: employees.find((entry) => entry.id === employee.id)?.arrears ?? 0,
-        ot_other: employees.find((entry) => entry.id === employee.id)?.ot_other ?? 0,
-        voluntary_pension: employees.find((entry) => entry.id === employee.id)?.voluntary_pension ?? 0,
-        advances: employees.find((entry) => entry.id === employee.id)?.advances ?? 0,
-        helb: employees.find((entry) => entry.id === employee.id)?.helb ?? 0,
-        company_loan: employees.find((entry) => entry.id === employee.id)?.company_loan ?? 0,
-        bank_loan: employees.find((entry) => entry.id === employee.id)?.bank_loan ?? 0,
-        sacco: employees.find((entry) => entry.id === employee.id)?.sacco ?? 0,
-        gross_salary: employee.gross_salary,
-        nssf_t1: employee.nssf_t1,
-        nssf_t2: employee.nssf_t2,
-        shif: employee.shif,
-        ahl: employee.ahl,
-        defined_pension_ee: employee.defined_pension_ee,
-        defined_pension_er: employee.defined_pension_er,
-        taxable_pay: 0,
-        gross_paye: 0,
-        personal_relief: 2400,
-        nhif_relief: 0,
-        ahl_relief: employee.ahl,
-        net_paye: employee.net_paye,
-        total_deductions: employee.gross_salary - employee.net_salary,
-        net_pay: employee.net_salary,
-        employer_pension: employee.defined_pension_er,
-        nita: 50,
-      }))
+    if (runError || !runData?.id) {
+      return NextResponse.json(
+        { error: `Failed to save the payroll run: ${runError?.message ?? "no run id returned"}` },
+        { status: 500 },
+      )
+    }
 
-      await supabase.from("payroll_register_entries").upsert(entries, { onConflict: "payroll_run_id,employee_id" })
+    // Column names here must match public.payroll_register_entries exactly —
+    // employer pension lives in `employer_pension`, and an earlier version
+    // also sent a non-existent `defined_pension_er`, which made Postgres
+    // reject the whole batch. That error was never checked, so runs silently
+    // ended up with zero entries; it is checked below now.
+    const entries = computed.map(({ employee, result }) => ({
+      payroll_run_id: runData.id,
+      employee_id: employee.id,
+      basic_salary: employee.base_salary,
+      bonus_commission: employee.bonus_commission,
+      fringe_benefit: employee.fringe_benefit,
+      transport_allowance: employee.transport_allowance,
+      arrears: employee.arrears,
+      ot_other: employee.ot_other,
+      voluntary_pension: employee.voluntary_pension,
+      advances: employee.advances,
+      helb: employee.helb,
+      company_loan: employee.company_loan,
+      bank_loan: employee.bank_loan,
+      sacco: employee.sacco,
+      gross_salary: result.gross_salary,
+      nssf_t1: result.nssf_t1,
+      nssf_t2: result.nssf_t2,
+      shif: result.shif,
+      ahl: result.ahl,
+      defined_pension_ee: result.defined_pension_ee,
+      taxable_pay: result.taxable_pay,
+      gross_paye: result.gross_paye,
+      personal_relief: result.personal_relief,
+      nhif_relief: result.nhif_relief,
+      ahl_relief: result.ahl_relief,
+      net_paye: result.net_paye,
+      total_deductions: result.total_deductions,
+      net_pay: result.net_salary,
+      employer_pension: result.defined_pension_er,
+      nita: RULES.nitaFlatPerEmployee,
+    }))
+
+    const { error: entriesError } = await supabase
+      .from("payroll_register_entries")
+      .upsert(entries, { onConflict: "payroll_run_id,employee_id" })
+
+    if (entriesError) {
+      return NextResponse.json(
+        { error: `Failed to save payroll register entries: ${entriesError.message}` },
+        { status: 500 },
+      )
     }
   }
 
