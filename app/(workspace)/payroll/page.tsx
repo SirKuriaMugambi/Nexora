@@ -26,14 +26,33 @@ function fmt(n: number) {
 function fmtD(n: number) {
   return n.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
+/**
+ * Saves a blob to disk. Two details matter and were previously wrong
+ * everywhere on this page:
+ *  - the anchor must be IN the document for .click() to fire reliably
+ *    (a detached anchor is ignored by some browsers), and
+ *  - the object URL must NOT be revoked synchronously after .click().
+ *    The browser hasn't finished reading the blob at that point, so
+ *    revoking immediately cancels the download — which looked like
+ *    "nothing happened", so the button got clicked again, and every
+ *    click that did survive queued another Save-As prompt.
+ */
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  a.style.display = "none"
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
 function downloadCSV(content: string, filename: string) {
   // Leading BOM so Excel reads the file as UTF-8 rather than Windows-1252
   // (without it, em-dashes and accented names render as mojibake).
-  const blob = new Blob(["﻿" + content], { type: "text/csv;charset=utf-8;" })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url; a.download = filename; a.click()
-  URL.revokeObjectURL(url)
+  triggerDownload(new Blob(["﻿" + content], { type: "text/csv;charset=utf-8;" }), filename)
 }
 
 // Derive a full EmployeeSummary from an Employee object
@@ -196,6 +215,12 @@ export default function PayrollPage() {
     return new Date(year, (month ?? 1) - 1, 1).toLocaleString("en-KE", { month: "long", year: "numeric" })
   }, [apiMonth])
   const currentMonth = useMemo(() => new Date().toISOString().slice(0, 7), [])
+
+  // Which file-generating action is currently running, so its button can
+  // disable itself and show progress. Generating 46 payslip PDFs server-side
+  // takes a few seconds; without this the button looked inert and got
+  // clicked repeatedly, queueing a Save-As prompt per click.
+  const [busyAction, setBusyAction] = useState<string | null>(null)
 
   // Send-payslips-by-email state
   const [sendingPayslips, setSendingPayslips] = useState(false)
@@ -465,17 +490,16 @@ export default function PayrollPage() {
   // we wait on live API access. Read-only: doesn't call the AX client or
   // change the run's status, unlike handlePostToAx below.
   async function handleExportGL() {
+    if (busyAction) return
+    setBusyAction("gl")
+    setWorkflowError(null)
     try {
       const response = await fetch(`/api/payroll/gl-journal?month=${apiMonth}`)
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}))
         throw new Error(payload.error ?? "Failed to generate the AX GL journal.")
       }
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url; a.download = `chrysal-ax-gl-journal-${apiMonth}.csv`; a.click()
-      URL.revokeObjectURL(url)
+      triggerDownload(await response.blob(), `chrysal-ax-gl-journal-${apiMonth}.csv`)
       addAuditLog(
         "AX GL JOURNAL DOWNLOADED",
         apiMonth,
@@ -483,6 +507,8 @@ export default function PayrollPage() {
       )
     } catch (err) {
       setWorkflowError(err instanceof Error ? err.message : "Failed to generate the AX GL journal.")
+    } finally {
+      setBusyAction(null)
     }
   }
 
@@ -528,17 +554,16 @@ export default function PayrollPage() {
       "bank-batch": { path: "/api/payroll/bank-batch", ext: "csv", label: "Bank Batch File" },
       "itax-export": { path: "/api/payroll/itax-export", ext: "csv", label: "iTax Export" },
     }[kind]
+    if (busyAction) return
+    setBusyAction(kind)
+    setWorkflowError(null)
     try {
       const response = await fetch(`${routeByKind.path}?month=${apiMonth}`)
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}))
         throw new Error(payload.error ?? `Failed to generate ${routeByKind.label}.`)
       }
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url; a.download = `chrysal-${kind}-${apiMonth}.${routeByKind.ext}`; a.click()
-      URL.revokeObjectURL(url)
+      triggerDownload(await response.blob(), `chrysal-${kind}-${apiMonth}.${routeByKind.ext}`)
       addAuditLog(
         `PAYROLL ${routeByKind.label.toUpperCase()} GENERATED`,
         apiMonth,
@@ -546,6 +571,8 @@ export default function PayrollPage() {
       )
     } catch (err) {
       setWorkflowError(err instanceof Error ? err.message : `Failed to generate ${routeByKind.label}.`)
+    } finally {
+      setBusyAction(null)
     }
   }
 
@@ -694,15 +721,18 @@ export default function PayrollPage() {
           )}
           <button
             onClick={handleExportRegister}
-            className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${buttonRadius}`}
+            disabled={busyAction !== null || employees.length === 0}
+            className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed ${buttonRadius}`}
           >
             <Download className="h-3.5 w-3.5" /><span>Export Register</span>
           </button>
           <button
             onClick={handleExportGL}
-            className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${buttonRadius}`}
+            disabled={busyAction !== null}
+            className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed ${buttonRadius}`}
           >
-            <FileSpreadsheet className="h-3.5 w-3.5" /><span>Export AX GL</span>
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            <span>{busyAction === "gl" ? "Preparing…" : "Export AX GL"}</span>
           </button>
         </div>
       </div>
@@ -1081,9 +1111,11 @@ export default function PayrollPage() {
 
               <button
                 onClick={handleExportGL}
-                className={`w-full mt-2 py-2 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 font-mono text-[10px] uppercase tracking-wider flex items-center justify-center gap-2 ${buttonRadius}`}
+                disabled={busyAction !== null}
+                className={`w-full mt-2 py-2 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 font-mono text-[10px] uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${buttonRadius}`}
               >
-                <Download className="h-3.5 w-3.5" /><span>Download AX GL CSV</span>
+                <Download className="h-3.5 w-3.5" />
+                <span>{busyAction === "gl" ? "Preparing file…" : "Download AX GL CSV"}</span>
               </button>
 
               {/* The shared error banner sits at the top of the page, far
@@ -1247,11 +1279,12 @@ export default function PayrollPage() {
                 <button
                   key={kind}
                   onClick={() => handleGenerate(kind)}
-                  disabled={runStatus !== "Approved" && runStatus !== "Posted"}
+                  disabled={(runStatus !== "Approved" && runStatus !== "Posted") || busyAction !== null}
                   title={runStatus !== "Approved" && runStatus !== "Posted" ? "The run must be Approved first" : undefined}
                   className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${buttonRadius}`}
                 >
-                  <Download className="h-3.5 w-3.5" /><span>{label}</span>
+                  <Download className="h-3.5 w-3.5" />
+                  <span>{busyAction === kind ? "Preparing file…" : label}</span>
                 </button>
               ))}
               <button
