@@ -183,10 +183,17 @@ export default function PayrollPage() {
   const [workflowError, setWorkflowError] = useState<string | null>(null)
   const [activeEmpIdx, setActiveEmpIdx] = useState<number | null>(null)
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
-  const [payMonth] = useState(() =>
-    new Date().toLocaleString("en-KE", { month: "long", year: "numeric" })
-  )
-  const apiMonth = useMemo(() => new Date().toISOString().slice(0, 7), [])
+  // The pay period being worked on. Defaults to the current calendar month
+  // (the normal end-of-month run) but is explicitly selectable: payroll that
+  // slips into the next month, or a correction to an earlier period, must
+  // still be filed against the month it belongs to — not whatever month it
+  // happens to be processed in.
+  const [apiMonth, setApiMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const payMonth = useMemo(() => {
+    const [year, month] = apiMonth.split("-").map(Number)
+    return new Date(year, (month ?? 1) - 1, 1).toLocaleString("en-KE", { month: "long", year: "numeric" })
+  }, [apiMonth])
+  const currentMonth = useMemo(() => new Date().toISOString().slice(0, 7), [])
 
   // Send-payslips-by-email state
   const [sendingPayslips, setSendingPayslips] = useState(false)
@@ -216,6 +223,8 @@ export default function PayrollPage() {
   const [importError, setImportError] = useState<string | null>(null)
   const [importPreview, setImportPreview] = useState<ImportPreviewResult | null>(null)
 
+  // Re-runs whenever the selected pay period changes, so the workflow status
+  // (Draft/Submitted/Approved/Posted) always reflects the month on screen.
   useEffect(() => {
     let ignore = false
 
@@ -246,7 +255,7 @@ export default function PayrollPage() {
     return () => {
       ignore = true
     }
-  }, [])
+  }, [apiMonth])
 
   // Aggregated data
   const summaries = useMemo(() => employees.map(toSummary), [employees])
@@ -593,11 +602,31 @@ export default function PayrollPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="pb-3 border-b border-zinc-200 dark:border-zinc-900 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div className="space-y-0.5">
-          <h1 className="text-base font-bold font-mono uppercase tracking-wider">Payroll &amp; Statutory Compliance</h1>
-          <p className="text-zinc-500 dark:text-zinc-400 text-xs max-w-2xl">
-            Automate monthly payroll using KRA PAYE graduated slabs, NSSF Tier I/II, SHIF (2.75%), and AHL (1.5%). Generate downloadable AX GL posting summary matching Chrysal&apos;s ERP format.
-          </p>
+        <div className="space-y-2">
+          <div className="space-y-0.5">
+            <h1 className="text-base font-bold font-mono uppercase tracking-wider">Payroll &amp; Statutory Compliance</h1>
+            <p className="text-zinc-500 dark:text-zinc-400 text-xs max-w-2xl">
+              Automate monthly payroll using KRA PAYE graduated slabs, NSSF Tier I/II, SHIF (2.75%), and AHL (1.5%). Generate downloadable AX GL posting summary matching Chrysal&apos;s ERP format.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="pay-period" className="text-[9px] font-mono uppercase tracking-wider text-zinc-400">
+              Pay Period
+            </label>
+            <input
+              id="pay-period"
+              type="month"
+              value={apiMonth}
+              onChange={(e) => { if (e.target.value) setApiMonth(e.target.value) }}
+              className={`bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-2 py-1 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-zinc-400 ${buttonRadius}`}
+            />
+            {apiMonth !== currentMonth && (
+              <span className="text-[9px] font-mono uppercase tracking-wider text-amber-500">
+                Not the current month — filing against {payMonth}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
           {(runStatus === null || runStatus === "Draft") && (
