@@ -5,6 +5,7 @@ import { useFinOps } from "@/components/finops-provider"
 import { useTheme } from "@/components/theme-provider"
 import { IdCard, Plus, X, Pencil, Trash2, ShieldAlert, Lock } from "lucide-react"
 import type { Employee } from "@/lib/seeds"
+import ModuleLock from "@/components/module-lock"
 
 const NUMERIC_FIELDS = [
   "base_salary", "bonus_commission", "fringe_benefit", "transport_allowance",
@@ -302,6 +303,7 @@ export default function EmployeesPage() {
   }
 
   return (
+    <ModuleLock moduleName="Employee Master Data">
     <div className="space-y-6">
       <div className="pb-3 border-b border-zinc-200 dark:border-zinc-900 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div className="space-y-0.5">
@@ -438,5 +440,6 @@ export default function EmployeesPage() {
         )}
       </div>
     </div>
+    </ModuleLock>
   )
 }

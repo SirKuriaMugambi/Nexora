@@ -221,6 +221,29 @@ export async function POST(request: Request) {
 
   const supabase = createSupabaseAdminClient()
   if (supabase) {
+    // A recompute may only overwrite a Draft or Rejected run. Without this
+    // guard the upsert below would silently demote a Submitted/Approved/
+    // Posted run back to Draft and rewrite its register — including a run
+    // already posted to AX, which must stay immutable as the audit record.
+    const { data: existingRun } = await supabase
+      .from("payroll_runs")
+      .select("status")
+      .eq("month", month)
+      .maybeSingle()
+
+    if (existingRun && existingRun.status !== "Draft" && existingRun.status !== "Rejected") {
+      return NextResponse.json(
+        {
+          error:
+            `The ${month} run is already "${existingRun.status}" and cannot be recomputed. ` +
+            (existingRun.status === "Submitted"
+              ? "Reject it first if the numbers need to change."
+              : "Approved/Posted runs are locked as the audit record."),
+        },
+        { status: 409 },
+      )
+    }
+
     const { data: runData, error: runError } = await supabase
       .from("payroll_runs")
       .upsert({ month, status: "Draft" }, { onConflict: "month" })

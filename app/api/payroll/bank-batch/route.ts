@@ -64,7 +64,9 @@ export async function GET(request: Request) {
     }
   })
 
-  const csv = buildBankBatchCSV(rows, month)
+  // BOM so Excel decodes the file as UTF-8 (names/bank names with special
+  // characters would otherwise render as mojibake).
+  const csv = "﻿" + buildBankBatchCSV(rows, month)
   return new NextResponse(csv, {
     status: 200,
     headers: {

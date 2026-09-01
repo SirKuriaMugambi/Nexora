@@ -17,6 +17,7 @@ import {
 } from "@/lib/payroll-engine"
 import { buildPayrollJournal } from "@/lib/journal-builder"
 import { validatePayrollRows } from "@/lib/payroll-validation"
+import ModuleLock from "@/components/module-lock"
 import type { Employee } from "@/lib/seeds"
 import type { ImportPreviewResult } from "@/app/api/payroll/import/route"
 
@@ -662,6 +663,7 @@ export default function PayrollPage() {
   }
 
   return (
+    <ModuleLock moduleName="Payroll & PAYE">
     <div className="space-y-6">
       {/* Header */}
       <div className="pb-3 border-b border-zinc-200 dark:border-zinc-900 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -692,25 +694,28 @@ export default function PayrollPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
+          {/* Rejected shows Run Payroll too — re-running resets the run to
+              Draft (the recovery path the "RE-RUN AND RESUBMIT" banner asks
+              for; previously the banner asked but no button was offered). */}
+          {(runStatus === null || runStatus === "Draft" || runStatus === "Rejected") && (
+            <button
+              onClick={computeAndSaveRun}
+              disabled={validationErrors.length > 0 || loadingEmployees}
+              title={validationErrors.length > 0 ? "Fix the blocking issues listed below first" : undefined}
+              className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed ${buttonRadius}`}
+            >
+              <Calculator className="h-3.5 w-3.5" /><span>Run Payroll</span>
+            </button>
+          )}
           {(runStatus === null || runStatus === "Draft") && (
-            <>
-              <button
-                onClick={computeAndSaveRun}
-                disabled={validationErrors.length > 0 || loadingEmployees}
-                title={validationErrors.length > 0 ? "Fix the blocking issues listed below first" : undefined}
-                className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed ${buttonRadius}`}
-              >
-                <Calculator className="h-3.5 w-3.5" /><span>Run Payroll</span>
-              </button>
-              <button
-                onClick={() => runWorkflowAction("submit")}
-                disabled={workflowBusy}
-                className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 disabled:opacity-50 ${accentBg} ${buttonRadius}`}
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                <span>Submit for Approval</span>
-              </button>
-            </>
+            <button
+              onClick={() => runWorkflowAction("submit")}
+              disabled={workflowBusy}
+              className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 disabled:opacity-50 ${accentBg} ${buttonRadius}`}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              <span>Submit for Approval</span>
+            </button>
           )}
           {runStatus === "Submitted" && (
             currentUserRole === "finance_manager" ? (
@@ -1517,5 +1522,6 @@ export default function PayrollPage() {
         </div>
       )}
     </div>
+    </ModuleLock>
   )
 }
