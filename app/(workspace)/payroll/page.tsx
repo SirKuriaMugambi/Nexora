@@ -16,6 +16,7 @@ import {
   type EmployeeSummary,
 } from "@/lib/payroll-engine"
 import { buildPayrollJournal } from "@/lib/journal-builder"
+import { validatePayrollRows } from "@/lib/payroll-validation"
 import type { Employee } from "@/lib/seeds"
 import type { ImportPreviewResult } from "@/app/api/payroll/import/route"
 
@@ -286,6 +287,12 @@ export default function PayrollPage() {
 
   // Aggregated data
   const summaries = useMemo(() => employees.map(toSummary), [employees])
+
+  // Pre-flight checks — errors block Run Payroll (the API enforces the same
+  // rules server-side); warnings flag degraded outputs (bank file, email).
+  const validationIssues = useMemo(() => validatePayrollRows(employees), [employees])
+  const validationErrors = useMemo(() => validationIssues.filter((i) => i.severity === "error"), [validationIssues])
+  const validationWarnings = useMemo(() => validationIssues.filter((i) => i.severity === "warning"), [validationIssues])
 
   // The real Dr/Cr journal, built client-side from the same pure function the
   // server uses for Post-to-AX and the CSV download — so the GL tab shows the
@@ -576,6 +583,33 @@ export default function PayrollPage() {
     }
   }
 
+  // Annual P9 tax deduction cards — one page per employee, built from every
+  // Approved/Posted run in the selected period's year (not gated on the
+  // current month's status; the server checks the year has signed-off runs).
+  async function handleGenerateP9() {
+    if (busyAction) return
+    const year = apiMonth.slice(0, 4)
+    setBusyAction("p9")
+    setWorkflowError(null)
+    try {
+      const response = await fetch(`/api/payroll/p9?year=${year}`)
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload.error ?? "Failed to generate P9 forms.")
+      }
+      triggerDownload(await response.blob(), `chrysal-p9-forms-${year}.pdf`)
+      addAuditLog(
+        "PAYROLL P9 FORMS GENERATED",
+        year,
+        `Generated annual P9 tax deduction cards for ${year}.`,
+      )
+    } catch (err) {
+      setWorkflowError(err instanceof Error ? err.message : "Failed to generate P9 forms.")
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
   async function handleSendPayslips() {
     setSendingPayslips(true)
     setSendPayslipsResult(null)
@@ -662,7 +696,9 @@ export default function PayrollPage() {
             <>
               <button
                 onClick={computeAndSaveRun}
-                className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${buttonRadius}`}
+                disabled={validationErrors.length > 0 || loadingEmployees}
+                title={validationErrors.length > 0 ? "Fix the blocking issues listed below first" : undefined}
+                className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed ${buttonRadius}`}
               >
                 <Calculator className="h-3.5 w-3.5" /><span>Run Payroll</span>
               </button>
@@ -740,6 +776,38 @@ export default function PayrollPage() {
       {workflowError && (
         <div className="p-3 border border-rose-200 bg-rose-50/40 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900 text-[11px]">
           {workflowError}
+        </div>
+      )}
+
+      {/* Pre-flight validation results */}
+      {validationErrors.length > 0 && (
+        <div className="p-3 border border-rose-200 bg-rose-50/40 dark:bg-rose-950/20 dark:border-rose-900 text-[11px] space-y-1">
+          <p className="font-bold font-mono uppercase text-[10px] tracking-wider text-rose-600 dark:text-rose-400">
+            {validationErrors.length} blocking issue{validationErrors.length > 1 ? "s" : ""} — Run Payroll is disabled until these are fixed in Employee Master
+          </p>
+          {validationErrors.slice(0, 8).map((issue, i) => (
+            <p key={i} className="text-rose-700 dark:text-rose-400">
+              <span className="font-mono font-bold">{issue.employeeId}</span> ({issue.name}): {issue.message}
+            </p>
+          ))}
+          {validationErrors.length > 8 && (
+            <p className="text-rose-500">…and {validationErrors.length - 8} more.</p>
+          )}
+        </div>
+      )}
+      {validationWarnings.length > 0 && (
+        <div className="p-3 border border-amber-200 bg-amber-50/40 dark:bg-amber-950/20 dark:border-amber-900 text-[11px] space-y-1">
+          <p className="font-bold font-mono uppercase text-[10px] tracking-wider text-amber-600 dark:text-amber-400">
+            {validationWarnings.length} warning{validationWarnings.length > 1 ? "s" : ""} — the run can proceed, but some outputs will skip these employees
+          </p>
+          {validationWarnings.slice(0, 5).map((issue, i) => (
+            <p key={i} className="text-amber-700 dark:text-amber-400">
+              <span className="font-mono font-bold">{issue.employeeId}</span> ({issue.name}): {issue.message}
+            </p>
+          ))}
+          {validationWarnings.length > 5 && (
+            <p className="text-amber-500">…and {validationWarnings.length - 5} more. Fix these in Employee Master.</p>
+          )}
         </div>
       )}
 
@@ -1287,6 +1355,15 @@ export default function PayrollPage() {
                   <span>{busyAction === kind ? "Preparing file…" : label}</span>
                 </button>
               ))}
+              <button
+                onClick={handleGenerateP9}
+                disabled={busyAction !== null}
+                title={`Annual P9 tax deduction cards for ${apiMonth.slice(0, 4)} — needs at least one Approved run in the year`}
+                className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${buttonRadius}`}
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>{busyAction === "p9" ? "Preparing file…" : `Generate P9 Forms (${apiMonth.slice(0, 4)})`}</span>
+              </button>
               <button
                 onClick={handleSendPayslips}
                 disabled={(runStatus !== "Approved" && runStatus !== "Posted") || sendingPayslips}

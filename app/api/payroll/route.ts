@@ -35,6 +35,11 @@ function normalizeEmployeeRow(row: Record<string, unknown>) {
     grade: String(row.grade ?? ""),
     cost_centre: String(row.cost_centre ?? "511"),
     department: String(row.department ?? "Production"),
+    // Not used in any calculation — carried through so the payroll page can
+    // run pre-flight validation (missing bank details / email warnings).
+    bank_name: row.bank_name != null ? String(row.bank_name) : null,
+    bank_account_number: row.bank_account_number != null ? String(row.bank_account_number) : null,
+    email: row.email != null ? String(row.email) : null,
     base_salary: input.base_salary,
     bonus_commission: input.bonus_commission,
     fringe_benefit: input.fringe_benefit,
@@ -170,6 +175,26 @@ export async function POST(request: Request) {
       ahl_relief_override: employee.ahl_relief_override,
     }),
   }))
+
+  // Server-side pre-flight gate — mirrors lib/payroll-validation.ts's error
+  // checks (the client also blocks these, but the API is the real gate).
+  // Warnings (missing bank/email) don't block: those degrade downstream
+  // outputs rather than making the run itself wrong.
+  const blocking = computed.filter(
+    ({ employee, result }) =>
+      !employee.kra_pin?.trim() || employee.base_salary <= 0 || result.net_salary < 0,
+  )
+  if (blocking.length > 0) {
+    return NextResponse.json(
+      {
+        error:
+          `Refusing to save: ${blocking.length} employee(s) failed pre-flight checks ` +
+          `(${blocking.slice(0, 5).map(({ employee }) => employee.id).join(", ")}${blocking.length > 5 ? ", …" : ""}) — ` +
+          "missing KRA PIN, non-positive basic salary, or negative net pay.",
+      },
+      { status: 400 },
+    )
+  }
 
   const payrollRun = computed.map(({ employee, result }) => ({
     id: employee.id,
