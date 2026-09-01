@@ -676,16 +676,34 @@ export default function PayrollPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <label htmlFor="pay-period" className="text-[9px] font-mono uppercase tracking-wider text-zinc-400">
+            <label htmlFor="pay-period-month" className="text-[9px] font-mono uppercase tracking-wider text-zinc-400">
               Pay Period
             </label>
-            <input
-              id="pay-period"
-              type="month"
-              value={apiMonth}
-              onChange={(e) => { if (e.target.value) setApiMonth(e.target.value) }}
+            {/* Explicit month + year dropdowns rather than a native month
+                input — the native control's year navigation is easy to miss,
+                and past-period corrections need the year to be unmistakable. */}
+            <select
+              id="pay-period-month"
+              value={apiMonth.slice(5, 7)}
+              onChange={(e) => setApiMonth(`${apiMonth.slice(0, 4)}-${e.target.value}`)}
               className={`bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-2 py-1 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-zinc-400 ${buttonRadius}`}
-            />
+            >
+              {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((label, i) => (
+                <option key={label} value={String(i + 1).padStart(2, "0")}>{label}</option>
+              ))}
+            </select>
+            <select
+              aria-label="Pay period year"
+              value={apiMonth.slice(0, 4)}
+              onChange={(e) => setApiMonth(`${e.target.value}-${apiMonth.slice(5, 7)}`)}
+              className={`bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-2 py-1 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-zinc-400 ${buttonRadius}`}
+            >
+              {/* 2024 (earliest data in the pilot) through next year, so a
+                  December run can be prepared/corrected into January. */}
+              {Array.from({ length: new Date().getFullYear() + 1 - 2024 + 1 }, (_, i) => String(2024 + i)).map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
             {apiMonth !== currentMonth && (
               <span className="text-[9px] font-mono uppercase tracking-wider text-amber-500">
                 Not the current month — filing against {payMonth}
