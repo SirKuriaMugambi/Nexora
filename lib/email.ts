@@ -36,6 +36,37 @@ export async function sendPayslipEmail(params: {
   return { ok: true }
 }
 
+// Owner-approval gate for new sign-ups (see app/api/signup-otp/* and
+// proxy.ts): the code goes ONLY to the system owner's own inbox, never to
+// the person signing up — they must be handed it out-of-band.
+export async function sendSignupOtpEmail(params: {
+  ownerEmail: string
+  newUserName: string
+  newUserEmail: string
+  code: string
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const resend = getClient()
+  if (!resend) return { ok: false, error: "RESEND_API_KEY is not configured" }
+
+  const from = process.env.PAYSLIP_FROM_EMAIL ?? "payroll@chrysal-africa.co.ke"
+
+  const { error } = await resend.emails.send({
+    from: `Chrysal FinOps <${from}>`,
+    to: params.ownerEmail,
+    subject: `New sign-up request — ${params.newUserName}`,
+    text:
+      `Someone just tried to create an account on Chrysal FinOps:\n\n` +
+      `  Name:  ${params.newUserName}\n` +
+      `  Email: ${params.newUserEmail}\n\n` +
+      `Their verification code is: ${params.code}\n\n` +
+      `This code expires in 15 minutes. Give it to them directly (call, WhatsApp, in person) ` +
+      `only if you actually want them to have access — anyone with the code can activate that account.`,
+  })
+
+  if (error) return { ok: false, error: error.message }
+  return { ok: true }
+}
+
 export async function sendP9Email(params: {
   to: string
   employeeName: string

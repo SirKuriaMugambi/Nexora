@@ -70,7 +70,18 @@ export default function SignUpPage() {
       `Created new institutional profile for "${name}" with role "${role}". Session started.`,
     )
 
-    router.push("/dashboard")
+    // New accounts land locked (profiles.otp_verified defaults to false —
+    // see the signup-otp migration) until the system owner hands over the
+    // code emailed only to them. Fire that first email now rather than
+    // waiting for the verify-code page's "resend" button; a failure here
+    // isn't fatal, since that page can retry.
+    try {
+      await fetch("/api/signup-otp/request", { method: "POST" })
+    } catch {
+      // verify-code page's resend covers this
+    }
+
+    router.push("/verify-code")
   }
 
   if (needsEmailConfirmation) {

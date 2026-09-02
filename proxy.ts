@@ -1,7 +1,11 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
-const PUBLIC_PATHS = ["/", "/sign-in", "/sign-up", "/access-ended"]
+const PUBLIC_PATHS = ["/", "/sign-in", "/sign-up", "/access-ended", "/verify-code"]
+// The two endpoints an unverified session needs to actually get verified —
+// must stay reachable even while otp_verified is false, or nobody could
+// ever complete the flow.
+const OTP_API_PATHS = ["/api/signup-otp/request", "/api/signup-otp/verify"]
 
 // Evaluation-access cutoff: from this instant on, only OWNER_EMAIL may use
 // the app — every other authenticated session gets redirected to
@@ -62,6 +66,32 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(new URL("/access-ended", request.url))
     }
     return response
+  }
+
+  // Owner-approval gate for new sign-ups: an authenticated account that
+  // hasn't been verified with the code the owner was emailed can reach
+  // NOTHING else — not the dashboard, not any API route — until it's
+  // verified. Only reachable exceptions: the verify-code page itself and
+  // the two OTP endpoints it calls.
+  if (user && !OTP_API_PATHS.includes(pathname)) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("otp_verified")
+      .eq("id", user.id)
+      .single()
+
+    if (profile && profile.otp_verified === false) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json(
+          { error: "This account hasn't been verified yet. Enter the code the administrator gave you." },
+          { status: 403 },
+        )
+      }
+      if (pathname !== "/verify-code") {
+        return NextResponse.redirect(new URL("/verify-code", request.url))
+      }
+      return response
+    }
   }
 
   if (!user && !isPublicPath) {
