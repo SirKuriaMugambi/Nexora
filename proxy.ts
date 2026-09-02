@@ -1,7 +1,17 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
-const PUBLIC_PATHS = ["/", "/sign-in", "/sign-up"]
+const PUBLIC_PATHS = ["/", "/sign-in", "/sign-up", "/access-ended"]
+
+// Evaluation-access cutoff: from this instant on, only OWNER_EMAIL may use
+// the app — every other authenticated session gets redirected to
+// /access-ended (or, for API calls, a 403). This is a deliberate,
+// temporary business gate (closing an open-ended free evaluation), not a
+// security fix — do not extend this pattern for real access control; the
+// role checks in lib/supabase.ts remain the actual authorization boundary.
+const OWNER_EMAIL = "owner@example.com"
+// 2026-09-03 00:00:00 Africa/Nairobi (EAT, UTC+3, no DST) == this UTC instant.
+const RESTRICTED_ACCESS_FROM = new Date("2026-09-02T21:00:00Z")
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request })
@@ -34,6 +44,25 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl
   const isPublicPath = PUBLIC_PATHS.includes(pathname)
+
+  // Only ever blocks an AUTHENTICATED non-owner — an anonymous visitor still
+  // sees the normal sign-in flow, and gets stopped here the instant their
+  // session resolves to a non-owner account.
+  const isLockedOut =
+    Boolean(user) && user!.email !== OWNER_EMAIL && Date.now() >= RESTRICTED_ACCESS_FROM.getTime()
+
+  if (isLockedOut) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "The evaluation period for this system has ended. Contact owner@example.com to continue." },
+        { status: 403 },
+      )
+    }
+    if (pathname !== "/access-ended") {
+      return NextResponse.redirect(new URL("/access-ended", request.url))
+    }
+    return response
+  }
 
   if (!user && !isPublicPath) {
     const redirectUrl = new URL("/sign-in", request.url)
