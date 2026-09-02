@@ -584,28 +584,59 @@ export default function PayrollPage() {
     }
   }
 
-  // Annual P9 tax deduction cards — one page per employee, built from every
-  // Approved/Posted run in the selected period's year (not gated on the
-  // current month's status; the server checks the year has signed-off runs).
-  async function handleGenerateP9() {
+  // Annual P9 tax deduction cards, built from every Approved/Posted run in
+  // the selected period's year. Two shapes: "combined" is one PDF with every
+  // employee's page, for Tony's own filing/archive copy — never hand this to
+  // an individual employee, since it exposes everyone else's pay too. "zip"
+  // packages the same data as separate single-employee PDFs, one file each,
+  // the correct shape for distributing per person.
+  async function handleGenerateP9(format: "combined" | "zip") {
     if (busyAction) return
     const year = apiMonth.slice(0, 4)
-    setBusyAction("p9")
+    setBusyAction(`p9-${format}`)
     setWorkflowError(null)
     try {
-      const response = await fetch(`/api/payroll/p9?year=${year}`)
+      const response = await fetch(`/api/payroll/p9?year=${year}&format=${format}`)
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}))
         throw new Error(payload.error ?? "Failed to generate P9 forms.")
       }
-      triggerDownload(await response.blob(), `chrysal-p9-forms-${year}.pdf`)
+      const ext = format === "zip" ? "zip" : "pdf"
+      triggerDownload(await response.blob(), `chrysal-p9-forms-${year}-${format}.${ext}`)
       addAuditLog(
         "PAYROLL P9 FORMS GENERATED",
         year,
-        `Generated annual P9 tax deduction cards for ${year}.`,
+        `Generated ${format === "zip" ? "individual (zipped)" : "combined"} P9 tax deduction cards for ${year}.`,
       )
     } catch (err) {
       setWorkflowError(err instanceof Error ? err.message : "Failed to generate P9 forms.")
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  async function handleSendP9() {
+    if (busyAction) return
+    const year = apiMonth.slice(0, 4)
+    setBusyAction("send-p9")
+    setWorkflowError(null)
+    try {
+      const response = await fetch("/api/payroll/send-p9", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year }),
+      })
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to email P9 forms.")
+      }
+      addAuditLog(
+        "PAYROLL P9 FORMS EMAILED",
+        year,
+        `Emailed ${payload.sent.length} P9 card(s) for ${year} (${payload.skippedNoEmail.length} skipped, no email on file).`,
+      )
+    } catch (err) {
+      setWorkflowError(err instanceof Error ? err.message : "Failed to email P9 forms.")
     } finally {
       setBusyAction(null)
     }
@@ -1379,13 +1410,31 @@ export default function PayrollPage() {
                 </button>
               ))}
               <button
-                onClick={handleGenerateP9}
+                onClick={() => handleGenerateP9("zip")}
                 disabled={busyAction !== null}
-                title={`Annual P9 tax deduction cards for ${apiMonth.slice(0, 4)} — needs at least one Approved run in the year`}
+                title={`Individual P9 PDFs for ${apiMonth.slice(0, 4)}, one file per employee in a ZIP — needs at least one Approved run in the year`}
                 className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${buttonRadius}`}
               >
                 <Download className="h-3.5 w-3.5" />
-                <span>{busyAction === "p9" ? "Preparing file…" : `Generate P9 Forms (${apiMonth.slice(0, 4)})`}</span>
+                <span>{busyAction === "p9-zip" ? "Preparing file…" : `Download Individual P9s (${apiMonth.slice(0, 4)})`}</span>
+              </button>
+              <button
+                onClick={() => handleGenerateP9("combined")}
+                disabled={busyAction !== null}
+                title={`One combined PDF with every employee's P9 for ${apiMonth.slice(0, 4)} — for your own filing/archive copy, not for distributing to staff`}
+                className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${buttonRadius}`}
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>{busyAction === "p9-combined" ? "Preparing file…" : "Combined P9 Archive Copy"}</span>
+              </button>
+              <button
+                onClick={handleSendP9}
+                disabled={busyAction !== null}
+                title={`Emails each employee their own individual P9 for ${apiMonth.slice(0, 4)}`}
+                className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${buttonRadius}`}
+              >
+                <Mail className="h-3.5 w-3.5" />
+                <span>{busyAction === "send-p9" ? "Sending…" : "Email P9 Forms to Employees"}</span>
               </button>
               <button
                 onClick={handleSendPayslips}

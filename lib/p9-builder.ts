@@ -24,6 +24,7 @@
  */
 
 import { jsPDF } from "jspdf"
+import JSZip from "jszip"
 
 export interface P9EntryRow {
   employee_id: string
@@ -214,7 +215,15 @@ function drawP9Page(doc: jsPDF, card: P9Card) {
   doc.setTextColor(0, 0, 0)
 }
 
-/** One PDF, one landscape page per employee. */
+/**
+ * One combined PDF, one page per employee — for Tony's own filing/archive
+ * copy, or for printing a batch. NOT what an individual employee should
+ * receive: a P9 is a personal tax document they need for their own annual
+ * return, so handing them 45 other people's pages along with theirs is
+ * inconvenient AND a real privacy problem (every employee would be able to
+ * see every other employee's pay). Use generateIndividualP9PDF / the ZIP /
+ * email path below for anything employee-facing.
+ */
 export function generateP9PDF(cards: P9Card[]): Blob {
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" })
   cards.forEach((card, i) => {
@@ -222,4 +231,21 @@ export function generateP9PDF(cards: P9Card[]): Blob {
     drawP9Page(doc, card)
   })
   return doc.output("blob")
+}
+
+/** One single-page PDF per employee — what actually gets emailed/zipped. */
+export function generateIndividualP9PDF(card: P9Card): Blob {
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" })
+  drawP9Page(doc, card)
+  return doc.output("blob")
+}
+
+/** Individual per-employee PDFs packaged into one ZIP for a single download. */
+export async function generateP9ZIP(cards: P9Card[]): Promise<Blob> {
+  const zip = new JSZip()
+  for (const card of cards) {
+    const blob = generateIndividualP9PDF(card)
+    zip.file(`P9-${card.employeeId}-${card.year}.pdf`, await blob.arrayBuffer())
+  }
+  return zip.generateAsync({ type: "blob" })
 }

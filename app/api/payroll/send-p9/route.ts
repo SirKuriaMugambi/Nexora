@@ -1,22 +1,29 @@
 import { NextResponse } from "next/server"
 import { createSupabaseAdminClient } from "@/lib/supabase-server"
 import { requireRole } from "@/lib/supabase"
-import { buildP9Cards, generateP9PDF, generateP9ZIP, type P9EntryRow } from "@/lib/p9-builder"
+import { buildP9Cards, generateIndividualP9PDF, type P9EntryRow } from "@/lib/p9-builder"
+import { sendP9Email, isEmailConfigured } from "@/lib/email"
 
-// Annual P9 tax deduction cards — one page per employee, built from every
-// Approved/Posted payroll run in the requested year. Unlike the monthly
-// exports this isn't gated on the CURRENT run's status: a P9 is issued for
-// a year, so it needs at least one signed-off run in that year, not a
-// particular state this month.
-export async function GET(request: Request) {
+// Emails each employee their own individual P9 card for the given year —
+// mirrors app/api/payroll/send-payslips/route.ts. Employees with no email
+// on file are skipped, not treated as an error.
+export async function POST(request: Request) {
   const guard = await requireRole("finance_manager")
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error }, { status: guard.status })
   }
 
-  const year = new URL(request.url).searchParams.get("year")
+  if (!isEmailConfigured()) {
+    return NextResponse.json(
+      { error: "Email sending is not configured. Set RESEND_API_KEY to enable this." },
+      { status: 503 },
+    )
+  }
+
+  const body = (await request.json()) as { year?: string }
+  const year = body.year
   if (!year || !/^\d{4}$/.test(year)) {
-    return NextResponse.json({ error: "year query param is required, e.g. ?year=2026" }, { status: 400 })
+    return NextResponse.json({ error: "year is required, e.g. { \"year\": \"2026\" }" }, { status: 400 })
   }
 
   const supabase = createSupabaseAdminClient()
@@ -26,7 +33,7 @@ export async function GET(request: Request) {
 
   const { data: runs, error: runsError } = await supabase
     .from("payroll_runs")
-    .select("id, month, status")
+    .select("id, month")
     .gte("month", `${year}-01`)
     .lte("month", `${year}-12`)
     .in("status", ["Approved", "Posted"])
@@ -36,7 +43,7 @@ export async function GET(request: Request) {
   }
   if (!runs || runs.length === 0) {
     return NextResponse.json(
-      { error: `No Approved/Posted payroll runs found for ${year} — P9 cards are built from signed-off runs.` },
+      { error: `No Approved/Posted payroll runs found for ${year}.` },
       { status: 404 },
     )
   }
@@ -54,7 +61,7 @@ export async function GET(request: Request) {
 
   const { data: employees, error: employeesError } = await supabase
     .from("employees")
-    .select("id, name, kra_pin")
+    .select("id, name, kra_pin, email")
 
   if (employeesError || !employees) {
     return NextResponse.json({ error: "Failed to load employee master data." }, { status: 500 })
@@ -78,36 +85,48 @@ export async function GET(request: Request) {
   }))
 
   const cards = buildP9Cards(year, employees, p9Entries)
-  if (cards.length === 0) {
-    return NextResponse.json({ error: `No employees with payroll data found for ${year}.` }, { status: 404 })
-  }
+  const employeeById = new Map(employees.map((e) => [e.id, e]))
 
-  // "combined" (default) = one PDF, all employees, for Tony's own filing
-  // copy. "zip" = individual per-employee PDFs, one file each, packaged
-  // together — the format to hand out or distribute, since a P9 is a
-  // personal tax document and employees should never see each other's pages.
-  const format = new URL(request.url).searchParams.get("format") === "zip" ? "zip" : "combined"
+  const sent: string[] = []
+  const skippedNoEmail: string[] = []
+  const failed: Array<{ id: string; error: string }> = []
 
-  if (format === "zip") {
-    const zipBlob = await generateP9ZIP(cards)
-    const buffer = Buffer.from(await zipBlob.arrayBuffer())
-    return new NextResponse(buffer, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="chrysal-p9-forms-${year}-individual.zip"`,
-      },
+  for (const card of cards) {
+    const employee = employeeById.get(card.employeeId)
+    if (!employee?.email) {
+      skippedNoEmail.push(card.employeeId)
+      continue
+    }
+
+    const pdfBlob = generateIndividualP9PDF(card)
+    const pdfBuffer = Buffer.from(await pdfBlob.arrayBuffer())
+
+    const result = await sendP9Email({
+      to: employee.email,
+      employeeName: card.name,
+      year,
+      pdfBuffer,
+      filename: `P9-${card.employeeId}-${year}.pdf`,
     })
+
+    if (result.ok) {
+      sent.push(card.employeeId)
+    } else {
+      failed.push({ id: card.employeeId, error: result.error })
+    }
   }
 
-  const pdfBlob = generateP9PDF(cards)
-  const buffer = Buffer.from(await pdfBlob.arrayBuffer())
+  const auditTimestamp = new Date().toLocaleString("en-US", { timeZone: "Africa/Nairobi" })
+  const formattedTimestamp = new Date(auditTimestamp).toISOString().replace("T", " ").substring(0, 19)
 
-  return new NextResponse(buffer, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="chrysal-p9-forms-${year}-combined.pdf"`,
-    },
+  await supabase.from("audit_logs").insert({
+    id: `AUD-${Math.floor(100000 + Math.random() * 900000)}`,
+    timestamp: formattedTimestamp,
+    operator_user: guard.user.id,
+    action: "SEND P9 FORMS",
+    document_ref: `p9/${year}`,
+    details: `Emailed ${sent.length} P9 card(s) for ${year}; ${skippedNoEmail.length} skipped (no email on file); ${failed.length} failed.`,
   })
+
+  return NextResponse.json({ year, sent, skippedNoEmail, failed })
 }

@@ -35,3 +35,27 @@ export async function sendPayslipEmail(params: {
   if (error) return { ok: false, error: error.message }
   return { ok: true }
 }
+
+export async function sendP9Email(params: {
+  to: string
+  employeeName: string
+  year: string
+  pdfBuffer: Buffer
+  filename: string
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const resend = getClient()
+  if (!resend) return { ok: false, error: "RESEND_API_KEY is not configured" }
+
+  const from = process.env.PAYSLIP_FROM_EMAIL ?? "payroll@chrysal-africa.co.ke"
+
+  const { error } = await resend.emails.send({
+    from: `Chrysal Africa Payroll <${from}>`,
+    to: params.to,
+    subject: `Tax Deduction Card (P9) — ${params.year}`,
+    text: `Hi ${params.employeeName},\n\nYour P9 tax deduction card for ${params.year} is attached. You'll need this for your personal KRA tax return.\n\nThis is an automated message from Chrysal Africa's payroll system.`,
+    attachments: [{ filename: params.filename, content: params.pdfBuffer }],
+  })
+
+  if (error) return { ok: false, error: error.message }
+  return { ok: true }
+}
