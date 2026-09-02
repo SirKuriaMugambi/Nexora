@@ -40,3 +40,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local test/scratch files and Excel's own lock files
+test-*.xlsx
+~$*.xlsx
