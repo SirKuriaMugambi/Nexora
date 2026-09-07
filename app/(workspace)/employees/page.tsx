@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react"
 import { useFinOps } from "@/components/finops-provider"
 import { useTheme } from "@/components/theme-provider"
-import { IdCard, Plus, X, Pencil, Trash2, ShieldAlert, Lock } from "lucide-react"
+import { IdCard, Plus, X, Pencil, Trash2, ShieldAlert, Lock, KeyRound, Copy, CheckCircle2 } from "lucide-react"
 import type { Employee } from "@/lib/seeds"
 import ModuleLock from "@/components/module-lock"
 
@@ -49,6 +49,96 @@ interface EmployeeFormProps {
   cardRadius: string
   buttonRadius: string
   accentBg: string
+}
+
+// Portal Access: provisions (or resets) an employee's self-service payslip
+// portal login. The password is shown here exactly once, straight from the
+// API response — never stored, never emailed. Deliberately kept simple:
+// this is a one-off admin action, not something needing its own draft/save
+// lifecycle like the rest of the form.
+function PortalAccessSection({ employee, buttonRadius }: { employee: Employee; buttonRadius: string }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<{ email: string; password: string; reset: boolean } | null>(null)
+  const [copied, setCopied] = useState(false)
+  const hasAccess = Boolean(employee.portal_user_id)
+
+  async function handleProvision() {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    setResult(null)
+    try {
+      const response = await fetch(`/api/employees/${employee.id}/portal-access`, { method: "POST" })
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to set up portal access.")
+      }
+      setResult(payload)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to set up portal access.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function copyPassword() {
+    if (!result) return
+    try {
+      await navigator.clipboard.writeText(result.password)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard API unavailable — the password is still visible to copy manually.
+    }
+  }
+
+  return (
+    <div className="pt-1 border-t dark:border-zinc-800 space-y-2">
+      <p className="text-[9px] font-mono uppercase text-zinc-400 flex items-center gap-1">
+        <KeyRound className="h-3 w-3" /> Self-Service Portal Access
+      </p>
+      <div className="flex items-center justify-between gap-3">
+        <span className={`text-[10px] font-mono ${hasAccess ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-400"}`}>
+          {hasAccess ? "Portal access enabled" : "No portal access yet"}
+        </span>
+        <button
+          type="button"
+          onClick={handleProvision}
+          disabled={busy || !employee.email}
+          title={!employee.email ? "Add an email above first" : undefined}
+          className={`px-3 py-1.5 font-mono text-[9px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed shrink-0 ${buttonRadius}`}
+        >
+          <KeyRound className="h-3 w-3" />
+          <span>{busy ? "Working…" : hasAccess ? "Reset Password" : "Create Portal Access"}</span>
+        </button>
+      </div>
+
+      {error && <p className="text-[10px] font-mono text-rose-500">{error}</p>}
+
+      {result && (
+        <div className="p-3 border border-emerald-200 bg-emerald-50/40 dark:bg-emerald-950/20 dark:border-emerald-900 space-y-1.5 rounded-lg">
+          <p className="text-[9px] font-mono uppercase text-emerald-700 dark:text-emerald-400 font-bold">
+            {result.reset ? "Password reset" : "Portal account created"} — shown once, relay it directly, do not send by email
+          </p>
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-mono">
+              <div>{result.email}</div>
+              <div className="font-bold tracking-wider">{result.password}</div>
+            </div>
+            <button
+              type="button"
+              onClick={copyPassword}
+              className="flex items-center gap-1 text-[9px] font-mono uppercase text-emerald-700 dark:text-emerald-400 hover:opacity-70 shrink-0"
+            >
+              {copied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              <span>{copied ? "Copied" : "Copy"}</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, accentBg }: EmployeeFormProps) {
@@ -111,7 +201,7 @@ function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, acc
             className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-2 py-1.5 text-[11px] font-mono focus:outline-none rounded">
             <option value="121">121 — Finance</option>
             <option value="204">204 — Technical (TC)</option>
-            <option value="205">205 — General Manager</option>
+            <option value="205">205 — OAT</option>
             <option value="206">206 — Technical Assistants</option>
             <option value="511">511 — Production</option>
             <option value="512">512 — Production-OH</option>
@@ -170,6 +260,8 @@ function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, acc
       <p className="text-[9px] text-zinc-400 font-mono">
         Statutory items (NSSF, SHIF, AHL, PAYE) are computed automatically from earnings — see Payroll &amp; PAYE.
       </p>
+
+      {initial && <PortalAccessSection employee={initial} buttonRadius={buttonRadius} />}
 
       <div className="flex gap-2 pt-2">
         <button onClick={save} disabled={saving} className={`flex-1 py-2 font-mono text-[10px] uppercase tracking-wider font-bold disabled:opacity-50 ${accentBg} ${buttonRadius}`}>

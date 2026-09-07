@@ -82,6 +82,9 @@ export interface Employee {
   bank_name?: string
   bank_account_number?: string
   email?: string | null
+  // Set once the employee has a self-service portal login — see
+  // app/api/employees/[id]/portal-access. Non-null = has portal access.
+  portal_user_id?: string | null
 
   // Per-employee statutory exceptions — see lib/payroll-engine.ts file header.
   // All default to standard treatment; only set for employees Tony confirms.

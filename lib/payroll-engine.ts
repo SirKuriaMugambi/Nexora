@@ -303,7 +303,7 @@ export type EmployeeSummary = {
 const CC_NAMES: Record<string, string> = {
   "121": "Finance",
   "204": "Technical (TC)",
-  "205": "General Manager",
+  "205": "OAT",
   "206": "Technical Assistants (TA)",
   "511": "Production",
   "512": "Production-OH",

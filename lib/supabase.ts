@@ -1,5 +1,6 @@
 import { createBrowserClient, createServerClient } from "@supabase/ssr"
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { createSupabaseAdminClient } from "@/lib/supabase-server"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
@@ -53,6 +54,43 @@ export async function requireRole(
     return { ok: false, status: 403, error: "You don't have access to this module" }
   }
   return { ok: true, user: authedUser }
+}
+
+// Route Handler guard for the employee self-service portal: requires an
+// authenticated session with role='employee' whose employees row (matched
+// via employees.portal_user_id, set once at provisioning — see
+// app/api/employees/[id]/portal-access/route.ts) actually exists. Returns
+// that employee's id so callers scope every query to it — this is what
+// makes it impossible for one employee's login to fetch another's payslip,
+// even by guessing a different staff number in the request: the id used
+// for every query comes from THIS lookup, never from client input.
+export async function requireEmployeeSelf(): Promise<
+  { ok: true; employeeId: string } | { ok: false; status: number; error: string }
+> {
+  const authedUser = await getAuthedUserWithRole()
+  if (!authedUser) {
+    return { ok: false, status: 401, error: "Not authenticated" }
+  }
+  if (authedUser.role !== "employee") {
+    return { ok: false, status: 403, error: "This area is only available to employee portal accounts" }
+  }
+
+  const admin = createSupabaseAdminClient()
+  if (!admin) {
+    return { ok: false, status: 503, error: "Backend is not configured" }
+  }
+
+  const { data: employee } = await admin
+    .from("employees")
+    .select("id")
+    .eq("portal_user_id", authedUser.id)
+    .single()
+
+  if (!employee) {
+    return { ok: false, status: 404, error: "No employee record is linked to this account" }
+  }
+
+  return { ok: true, employeeId: employee.id }
 }
 
 // Server Component / Route Handler client — reads the user's session from cookies.
