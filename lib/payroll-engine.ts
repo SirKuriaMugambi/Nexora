@@ -289,6 +289,11 @@ export interface CostCentreBreakdown {
 
 export type EmployeeSummary = {
   id: string; name: string; kra_pin: string; cost_centre: string;
+  // costCentre -> fractional share (0-1, summing to 1). Optional: absent
+  // means 100% to cost_centre, same as everyone except a shared-services
+  // employee like a General Manager split across centres. See
+  // lib/cost-allocation.ts and buildCostCentreBreakdown below.
+  cost_centre_allocation?: Record<string, number> | null
   gross_salary: number; net_paye: number; nssf_t1: number; nssf_t2: number;
   shif: number; ahl: number; defined_pension_ee: number; defined_pension_er: number;
   helb: number; company_loan: number; bank_loan: number; sacco: number; advances: number;
@@ -328,25 +333,38 @@ export function buildCostCentreBreakdown(employees: EmployeeSummary[]): CostCent
   const map = new Map<string, CostCentreBreakdown>()
 
   for (const emp of employees) {
-    const cc = emp.cost_centre
-    if (!map.has(cc)) {
-      map.set(cc, {
-        code: cc,
-        name: CC_NAMES[cc] ?? cc,
-        gross: 0, net: 0, paye: 0,
-        pension_er: 0, nssf: 0, ahl: 0, shif: 0,
-        headcount: 0,
-      })
+    // Real splits (see lib/cost-allocation.ts): a shared-services employee's
+    // monetary figures are proportioned across their cost centres, e.g. a
+    // General Manager on {121: 0.5, 512: 0.5} contributes half their gross
+    // to each row. Headcount instead counts once PER cost centre they
+    // appear in — a fractional 0.5 head would be a strange thing to show
+    // on a staffing report; the person genuinely has real cost landing in
+    // both centres, so both rows should count them.
+    const allocation = emp.cost_centre_allocation
+    const splits = allocation && Object.keys(allocation).length > 0
+      ? Object.entries(allocation).filter(([, share]) => share > 0)
+      : [[emp.cost_centre, 1] as [string, number]]
+
+    for (const [cc, share] of splits) {
+      if (!map.has(cc)) {
+        map.set(cc, {
+          code: cc,
+          name: CC_NAMES[cc] ?? cc,
+          gross: 0, net: 0, paye: 0,
+          pension_er: 0, nssf: 0, ahl: 0, shif: 0,
+          headcount: 0,
+        })
+      }
+      const row = map.get(cc)!
+      row.gross += emp.gross_salary * share
+      row.net += emp.net_salary * share
+      row.paye += emp.net_paye * share
+      row.pension_er += emp.defined_pension_er * share
+      row.nssf += (emp.nssf_t1 + emp.nssf_t2) * share
+      row.ahl += emp.ahl * share
+      row.shif += emp.shif * share
+      row.headcount += 1
     }
-    const row = map.get(cc)!
-    row.gross += emp.gross_salary
-    row.net += emp.net_salary
-    row.paye += emp.net_paye
-    row.pension_er += emp.defined_pension_er
-    row.nssf += emp.nssf_t1 + emp.nssf_t2
-    row.ahl += emp.ahl
-    row.shif += emp.shif
-    row.headcount += 1
   }
 
   return Array.from(map.values()).sort((a, b) => a.code.localeCompare(b.code))

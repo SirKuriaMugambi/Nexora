@@ -74,6 +74,10 @@ export interface Employee {
   sha_pin?: string | null
   grade: string
   cost_centre: string      // e.g. "121", "204", "511", "512"
+  // Overrides cost_centre for GL/journal purposes when set: costCentre ->
+  // fractional share (0-1, summing to 1) for a shared-services employee
+  // whose cost splits across multiple centres. See lib/cost-allocation.ts.
+  cost_centre_allocation?: Record<string, number> | null
   department: string       // e.g. "Finance", "Technical", "Production"
   bank_name?: string
   bank_account_number?: string

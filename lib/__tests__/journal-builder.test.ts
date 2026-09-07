@@ -3,8 +3,12 @@ import { buildPayrollJournal, type PayrollJournalEmployeeInput } from "@/lib/jou
 import { PAYROLL_GL_ACCOUNTS, PAYROLL_LIABILITY_DIMENSION } from "@/lib/gl-accounts-config"
 
 function makeEmployee(
-  overrides: Partial<PayrollJournalEmployeeInput["inputs"]> & { id: string; department: string; cost_centre: string },
+  overrides: Partial<PayrollJournalEmployeeInput["inputs"]> & {
+    id: string; department: string; cost_centre: string
+    cost_centre_allocation?: Record<string, number> | null
+  },
 ): PayrollJournalEmployeeInput {
+  const { cost_centre_allocation, ...inputOverrides } = overrides
   const inputs = {
     base_salary: 100000,
     bonus_commission: 0,
@@ -18,11 +22,11 @@ function makeEmployee(
     company_loan: 0,
     bank_loan: 0,
     sacco: 0,
-    ...overrides,
+    ...inputOverrides,
   }
 
   return {
-    employee: { id: overrides.id, department: overrides.department, cost_centre: overrides.cost_centre },
+    employee: { id: overrides.id, department: overrides.department, cost_centre: overrides.cost_centre, cost_centre_allocation },
     inputs,
     result: computePayroll(inputs),
   }
@@ -93,5 +97,48 @@ describe("buildPayrollJournal", () => {
 
     const nonCashLine = journal.lines.find((l) => l.accountCode === PAYROLL_GL_ACCOUNTS.nonCashBenefitsClearing.code)
     expect(nonCashLine).toBeUndefined()
+  })
+
+  // A shared-services employee (e.g. a General Manager split 50/50 across
+  // two cost centres) must produce TWO salary-expense lines, each roughly
+  // half the amount, and the whole journal must still balance. This is the
+  // exact scenario a database column was added for by a separate, code-blind
+  // session without ever being wired into this function — confirming it
+  // actually works end to end now that it is.
+  it("splits a shared-services employee's expense lines across their real cost-centre allocation", () => {
+    const journal = buildPayrollJournal("2026-08", [
+      makeEmployee({
+        id: "1005", department: "Production", cost_centre: "121",
+        cost_centre_allocation: { "121": 0.5, "512": 0.5 },
+        base_salary: 440382.84,
+      }),
+    ])
+
+    const salaryLines = journal.lines.filter((l) => l.accountCode === PAYROLL_GL_ACCOUNTS.salaryExpense.code)
+    expect(salaryLines).toHaveLength(2)
+    const cc121 = salaryLines.find((l) => l.dimension.costCentre === "121")!
+    const cc512 = salaryLines.find((l) => l.dimension.costCentre === "512")!
+    expect(cc121.debit).toBeCloseTo(220191.42, 2)
+    expect(cc512.debit).toBeCloseTo(220191.42, 2)
+    expect(journal.isBalanced).toBe(true)
+    expect(journal.totalDebit).toBeCloseTo(journal.totalCredit, 2)
+  })
+
+  it("merges a split employee's share into an existing cost-centre line rather than double-booking it", () => {
+    const journal = buildPayrollJournal("2026-08", [
+      makeEmployee({ id: "1000", department: "Production", cost_centre: "512", base_salary: 100000 }),
+      makeEmployee({
+        id: "1005", department: "Production", cost_centre: "121",
+        cost_centre_allocation: { "121": 0.5, "512": 0.5 },
+        base_salary: 40000,
+      }),
+    ])
+
+    const cc512Lines = journal.lines.filter(
+      (l) => l.accountCode === PAYROLL_GL_ACCOUNTS.salaryExpense.code && l.dimension.costCentre === "512",
+    )
+    // One merged line for CC 512, not two — 1000's full 100k plus 1005's 50% (20k).
+    expect(cc512Lines).toHaveLength(1)
+    expect(cc512Lines[0].debit).toBeCloseTo(120000, 2)
   })
 })

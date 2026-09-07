@@ -1,12 +1,14 @@
 /**
  * Maps payroll amounts to Dynamics AX financial dimensions (department +
- * cost centre). The current employee data model (public.employees /
- * lib/seeds.ts) carries exactly one department/cost_centre per employee —
- * there's no multi-cost-centre split data anywhere in the schema today — so
- * `buildEmployeeDimension` covers the real, current use case, while
- * `allocateAcrossSplits` exists for the future case (e.g. a shared-services
- * employee whose cost should be split 60/40 across two centres) and is unit
- * tested against that scenario even though nothing calls it with >1 split yet.
+ * cost centre). Most employees carry exactly one cost_centre — that's what
+ * `buildEmployeeDimension` covers. A shared-services employee (e.g. a
+ * General Manager whose cost splits across two centres) instead carries a
+ * `cost_centre_allocation` JSONB map of costCentre -> fractional share
+ * (0–1, summing to 1) on public.employees; `getEmployeeCostCentreSplits` and
+ * `allocateEmployeeAmount` read that and fall back to the single-centre case
+ * when it's absent, so every caller can use `allocateEmployeeAmount`
+ * unconditionally rather than branching on whether an employee happens to
+ * have a split.
  */
 
 export interface AxDimension {
@@ -28,14 +30,49 @@ export interface EmployeeForAllocation {
   id: string
   department: string
   cost_centre: string
+  /** costCentre -> fractional share (0–1). Absent/null/empty = single cost_centre, 100%. */
+  cost_centre_allocation?: Record<string, number> | null
 }
 
-/** The single-cost-centre case: today's actual data shape, one dimension per employee. */
+/** The single-cost-centre case: today's default data shape, one dimension per employee. */
 export function buildEmployeeDimension(employee: EmployeeForAllocation): AxDimension {
   return {
     department: employee.department,
     costCentre: employee.cost_centre,
   }
+}
+
+/**
+ * Resolves an employee's cost-centre splits as CostAllocationSplit[] ready
+ * for allocateAcrossSplits — from cost_centre_allocation if it's a real,
+ * non-empty map, otherwise a single 100% split on their primary cost_centre.
+ * Department is the employee's single department field for every split
+ * line; only cost centre varies per split in the data we have.
+ */
+export function getEmployeeCostCentreSplits(employee: EmployeeForAllocation): CostAllocationSplit[] {
+  const allocation = employee.cost_centre_allocation
+  const entries = allocation ? Object.entries(allocation).filter(([, share]) => share > 0) : []
+
+  if (entries.length === 0) {
+    return [{ department: employee.department, costCentre: employee.cost_centre, percentage: 100 }]
+  }
+
+  return entries.map(([costCentre, share]) => ({
+    department: employee.department,
+    costCentre,
+    percentage: share * 100,
+  }))
+}
+
+/**
+ * Splits one amount (e.g. an employee's gross salary) across their real
+ * cost-centre allocation. This is what journal-builder.ts and the on-screen
+ * cost-centre breakdown should call instead of assuming one dimension per
+ * employee — it's a no-op wrapper around allocateAcrossSplits for the
+ * (common) single-centre case, and does the real split otherwise.
+ */
+export function allocateEmployeeAmount(employee: EmployeeForAllocation, amount: number): AllocatedAmount[] {
+  return allocateAcrossSplits(amount, getEmployeeCostCentreSplits(employee))
 }
 
 export class CostAllocationError extends Error {}

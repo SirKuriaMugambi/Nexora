@@ -101,7 +101,7 @@ export async function POST(request: Request) {
   const employeeIds = entries.map((e) => e.employee_id)
   const { data: employees, error: employeesError } = await supabase
     .from("employees")
-    .select("id, department, cost_centre")
+    .select("id, department, cost_centre, cost_centre_allocation")
     .in("id", employeeIds)
 
   if (employeesError || !employees) {
@@ -115,10 +115,16 @@ export async function POST(request: Request) {
       id: entry.employee_id,
       department: "Production",
       cost_centre: "511",
+      cost_centre_allocation: null,
     }
 
     return {
-      employee: { id: employee.id, department: employee.department, cost_centre: employee.cost_centre },
+      employee: {
+        id: employee.id,
+        department: employee.department,
+        cost_centre: employee.cost_centre,
+        cost_centre_allocation: employee.cost_centre_allocation,
+      },
       inputs: {
         base_salary: entry.basic_salary,
         bonus_commission: entry.bonus_commission,

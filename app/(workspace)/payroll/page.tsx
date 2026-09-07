@@ -62,6 +62,7 @@ function toSummary(emp: Employee): EmployeeSummary {
   return {
     id: emp.id, name: emp.name, kra_pin: emp.kra_pin ?? "",
     cost_centre: emp.cost_centre ?? "121",
+    cost_centre_allocation: emp.cost_centre_allocation,
     gross_salary: emp.gross_salary ?? emp.base_salary + emp.allowances,
     net_paye: emp.net_paye ?? emp.paye,
     nssf_t1: emp.nssf_t1 ?? 420, nssf_t2: emp.nssf_t2 ?? 1740,
@@ -303,7 +304,12 @@ export default function PayrollPage() {
       buildPayrollJournal(
         apiMonth,
         employees.map((emp) => ({
-          employee: { id: emp.id, department: emp.department, cost_centre: emp.cost_centre },
+          employee: {
+            id: emp.id,
+            department: emp.department,
+            cost_centre: emp.cost_centre,
+            cost_centre_allocation: emp.cost_centre_allocation,
+          },
           inputs: {
             base_salary: emp.base_salary,
             bonus_commission: emp.bonus_commission,

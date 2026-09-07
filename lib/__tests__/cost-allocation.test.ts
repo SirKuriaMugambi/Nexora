@@ -2,6 +2,8 @@ import {
   buildEmployeeDimension,
   allocateAcrossSplits,
   groupByDimension,
+  getEmployeeCostCentreSplits,
+  allocateEmployeeAmount,
   CostAllocationError,
 } from "@/lib/cost-allocation"
 
@@ -46,6 +48,56 @@ describe("allocateAcrossSplits", () => {
 
   it("throws CostAllocationError when no splits are given", () => {
     expect(() => allocateAcrossSplits(100000, [])).toThrow(CostAllocationError)
+  })
+})
+
+describe("getEmployeeCostCentreSplits", () => {
+  it("falls back to a single 100% split on cost_centre when no allocation is set", () => {
+    const splits = getEmployeeCostCentreSplits({ id: "1000", department: "Production", cost_centre: "512" })
+    expect(splits).toEqual([{ department: "Production", costCentre: "512", percentage: 100 }])
+  })
+
+  it("falls back the same way for null and empty-object allocations, not just absent", () => {
+    for (const allocation of [null, {}]) {
+      const splits = getEmployeeCostCentreSplits({
+        id: "1000", department: "Production", cost_centre: "512", cost_centre_allocation: allocation,
+      })
+      expect(splits).toEqual([{ department: "Production", costCentre: "512", percentage: 100 }])
+    }
+  })
+
+  it("converts a real allocation (0-1 fractional shares) to percentage splits", () => {
+    const splits = getEmployeeCostCentreSplits({
+      id: "1005", department: "Production", cost_centre: "121",
+      cost_centre_allocation: { "121": 0.5, "512": 0.5 },
+    })
+    expect(splits).toHaveLength(2)
+    expect(splits).toEqual(
+      expect.arrayContaining([
+        { department: "Production", costCentre: "121", percentage: 50 },
+        { department: "Production", costCentre: "512", percentage: 50 },
+      ]),
+    )
+  })
+})
+
+describe("allocateEmployeeAmount", () => {
+  it("splits a real employee's amount exactly 50/50 across two cost centres — the actual General Manager case", () => {
+    const result = allocateEmployeeAmount(
+      { id: "1005", department: "Production", cost_centre: "121", cost_centre_allocation: { "121": 0.5, "512": 0.5 } },
+      440382.84,
+    )
+    expect(result).toHaveLength(2)
+    const cc121 = result.find((r) => r.dimension.costCentre === "121")!
+    const cc512 = result.find((r) => r.dimension.costCentre === "512")!
+    expect(cc121.amount).toBeCloseTo(220191.42, 2)
+    expect(cc512.amount).toBeCloseTo(220191.42, 2)
+    expect(cc121.amount + cc512.amount).toBeCloseTo(440382.84, 2)
+  })
+
+  it("returns the full amount on the single cost centre for an unsplit employee", () => {
+    const result = allocateEmployeeAmount({ id: "1000", department: "Production", cost_centre: "511" }, 398051.75)
+    expect(result).toEqual([{ dimension: { department: "Production", costCentre: "511" }, amount: 398051.75 }])
   })
 })
 

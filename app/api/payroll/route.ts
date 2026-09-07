@@ -34,6 +34,7 @@ function normalizeEmployeeRow(row: Record<string, unknown>) {
     kra_pin: String(row.kra_pin ?? ""),
     grade: String(row.grade ?? ""),
     cost_centre: String(row.cost_centre ?? "511"),
+    cost_centre_allocation: (row.cost_centre_allocation as Record<string, number> | null) ?? null,
     department: String(row.department ?? "Production"),
     // Not used in any calculation — carried through so the payroll page can
     // run pre-flight validation (missing bank details / email warnings).

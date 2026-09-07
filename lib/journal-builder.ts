@@ -24,7 +24,7 @@
  */
 
 import { PAYROLL_GL_ACCOUNTS, PAYROLL_LIABILITY_DIMENSION } from "@/lib/gl-accounts-config"
-import { buildEmployeeDimension, type AxDimension, type EmployeeForAllocation } from "@/lib/cost-allocation"
+import { allocateEmployeeAmount, type AxDimension, type EmployeeForAllocation } from "@/lib/cost-allocation"
 import { KENYA_PAYROLL_RULES_2024 } from "@/lib/payroll-rules-config"
 import type { PayrollInputs, PayrollResult } from "@/lib/payroll-engine"
 
@@ -107,15 +107,25 @@ export function buildPayrollJournal(
   }
 
   for (const { employee, inputs, result } of employeeInputs) {
-    const dimension = buildEmployeeDimension(employee)
-
-    addToMap(salaryByDimension, dimension, result.gross_salary)
-    addToMap(
-      employerStatutoryByDimension,
-      dimension,
+    // Splits across the employee's real cost-centre allocation when one is
+    // set (see lib/cost-allocation.ts) — a no-op split for the common
+    // single-cost-centre case, a real multi-line split otherwise. Each of
+    // the three expense buckets is allocated independently since they're
+    // different amounts, but they land on identical dimensions/percentages
+    // for a given employee, so the three resulting line sets always share
+    // the same cost-centre breakdown.
+    for (const { dimension, amount } of allocateEmployeeAmount(employee, result.gross_salary)) {
+      addToMap(salaryByDimension, dimension, amount)
+    }
+    for (const { dimension, amount } of allocateEmployeeAmount(
+      employee,
       result.defined_pension_er + KENYA_PAYROLL_RULES_2024.nitaFlatPerEmployee,
-    )
-    addToMap(nonCashByDimension, dimension, inputs.fringe_benefit)
+    )) {
+      addToMap(employerStatutoryByDimension, dimension, amount)
+    }
+    for (const { dimension, amount } of allocateEmployeeAmount(employee, inputs.fringe_benefit)) {
+      addToMap(nonCashByDimension, dimension, amount)
+    }
 
     netPayTotal += result.net_salary
     payeTotal += result.net_paye

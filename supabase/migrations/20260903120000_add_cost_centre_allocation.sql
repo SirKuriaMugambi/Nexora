@@ -1,0 +1,17 @@
+-- Documents public.employees.cost_centre_allocation, added directly to the
+-- live database outside the migration history (via a separate, code-blind
+-- session) rather than through this repo. IF NOT EXISTS makes this safe to
+-- run even though the column is already live — this migration exists so
+-- the schema is reproducible and tracked, not to apply a change that
+-- hasn't happened yet.
+--
+-- Shape: JSONB map of costCentre -> fractional share (0-1, summing to 1)
+-- for a shared-services employee whose cost splits across multiple cost
+-- centres — e.g. {"121": 0.5, "512": 0.5} for a General Manager split
+-- between Finance and Production-OH. NULL/absent means the employee's
+-- single cost_centre column carries 100%, which is the default for
+-- everyone except an explicitly split employee. See lib/cost-allocation.ts
+-- (getEmployeeCostCentreSplits, allocateEmployeeAmount) for how this is
+-- read — it's read by the AX journal builder and the on-screen cost-centre
+-- breakdown; nothing else in the app is affected.
+ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS cost_centre_allocation jsonb;
