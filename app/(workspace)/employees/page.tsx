@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react"
 import { useFinOps } from "@/components/finops-provider"
 import { useTheme } from "@/components/theme-provider"
-import { IdCard, Plus, X, Pencil, Trash2, ShieldAlert, Lock, KeyRound, Copy, CheckCircle2 } from "lucide-react"
+import { IdCard, Plus, X, Pencil, Trash2, ShieldAlert, Lock, KeyRound } from "lucide-react"
 import type { Employee } from "@/lib/seeds"
 import ModuleLock from "@/components/module-lock"
 
@@ -51,45 +51,32 @@ interface EmployeeFormProps {
   accentBg: string
 }
 
-// Portal Access: provisions (or resets) an employee's self-service payslip
-// portal login. The password is shown here exactly once, straight from the
-// API response — never stored, never emailed. Deliberately kept simple:
-// this is a one-off admin action, not something needing its own draft/save
-// lifecycle like the rest of the form.
+// Portal Access: turns on an employee's self-service payslip portal. There's
+// no password to generate or relay — they sign in with their email and the
+// last 4 characters of their own KRA PIN, already on file here (see
+// app/api/portal-login) — the same thing they already use to open their
+// payslip PDF, so this is just an on/off switch, not a credential-handout
+// step.
 function PortalAccessSection({ employee, buttonRadius }: { employee: Employee; buttonRadius: string }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<{ email: string; password: string; reset: boolean } | null>(null)
-  const [copied, setCopied] = useState(false)
-  const hasAccess = Boolean(employee.portal_user_id)
+  const [enabled, setEnabled] = useState(Boolean(employee.portal_user_id))
 
-  async function handleProvision() {
-    if (busy) return
+  async function handleEnable() {
+    if (busy || enabled) return
     setBusy(true)
     setError(null)
-    setResult(null)
     try {
       const response = await fetch(`/api/employees/${employee.id}/portal-access`, { method: "POST" })
       const payload = await response.json()
       if (!response.ok) {
         throw new Error(payload.error ?? "Failed to set up portal access.")
       }
-      setResult(payload)
+      setEnabled(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to set up portal access.")
     } finally {
       setBusy(false)
-    }
-  }
-
-  async function copyPassword() {
-    if (!result) return
-    try {
-      await navigator.clipboard.writeText(result.password)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard API unavailable — the password is still visible to copy manually.
     }
   }
 
@@ -99,44 +86,24 @@ function PortalAccessSection({ employee, buttonRadius }: { employee: Employee; b
         <KeyRound className="h-3 w-3" /> Self-Service Portal Access
       </p>
       <div className="flex items-center justify-between gap-3">
-        <span className={`text-[10px] font-mono ${hasAccess ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-400"}`}>
-          {hasAccess ? "Portal access enabled" : "No portal access yet"}
+        <span className={`text-[10px] font-mono ${enabled ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-400"}`}>
+          {enabled ? "Portal access enabled — they sign in with email + last 4 of their KRA PIN" : "No portal access yet"}
         </span>
-        <button
-          type="button"
-          onClick={handleProvision}
-          disabled={busy || !employee.email}
-          title={!employee.email ? "Add an email above first" : undefined}
-          className={`px-3 py-1.5 font-mono text-[9px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed shrink-0 ${buttonRadius}`}
-        >
-          <KeyRound className="h-3 w-3" />
-          <span>{busy ? "Working…" : hasAccess ? "Reset Password" : "Create Portal Access"}</span>
-        </button>
+        {!enabled && (
+          <button
+            type="button"
+            onClick={handleEnable}
+            disabled={busy || !employee.email || !employee.kra_pin}
+            title={!employee.email ? "Add an email above first" : !employee.kra_pin ? "Add a KRA PIN above first" : undefined}
+            className={`px-3 py-1.5 font-mono text-[9px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed shrink-0 ${buttonRadius}`}
+          >
+            <KeyRound className="h-3 w-3" />
+            <span>{busy ? "Working…" : "Enable Portal Access"}</span>
+          </button>
+        )}
       </div>
 
       {error && <p className="text-[10px] font-mono text-rose-500">{error}</p>}
-
-      {result && (
-        <div className="p-3 border border-emerald-200 bg-emerald-50/40 dark:bg-emerald-950/20 dark:border-emerald-900 space-y-1.5 rounded-lg">
-          <p className="text-[9px] font-mono uppercase text-emerald-700 dark:text-emerald-400 font-bold">
-            {result.reset ? "Password reset" : "Portal account created"} — shown once, relay it directly, do not send by email
-          </p>
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-[11px] font-mono">
-              <div>{result.email}</div>
-              <div className="font-bold tracking-wider">{result.password}</div>
-            </div>
-            <button
-              type="button"
-              onClick={copyPassword}
-              className="flex items-center gap-1 text-[9px] font-mono uppercase text-emerald-700 dark:text-emerald-400 hover:opacity-70 shrink-0"
-            >
-              {copied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              <span>{copied ? "Copied" : "Copy"}</span>
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

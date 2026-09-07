@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react"
 import { useFinOps } from "@/components/finops-provider"
+import { createSupabaseBrowserClient } from "@/lib/supabase"
 import Logo from "@/components/logo"
 import { Download, FileText, LogOut, Receipt } from "lucide-react"
 
@@ -68,6 +69,20 @@ export default function MyPortalPage() {
     }
     load()
     return () => { ignore = true }
+  }, [])
+
+  // No password, no "remember me" — access is a fresh emailed code every
+  // time (see /employee-login). Signing out the moment they leave means the
+  // next visit always needs a new code, rather than a session lingering
+  // indefinitely on a shared or public device. Best-effort by nature (no
+  // browser API guarantees a handler runs on close), same trade-off as the
+  // visible Sign Out button already covers for a deliberate exit.
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient()
+    if (!supabase) return
+    const handleLeave = () => { supabase.auth.signOut() }
+    window.addEventListener("pagehide", handleLeave)
+    return () => window.removeEventListener("pagehide", handleLeave)
   }, [])
 
   const handleDownloadPayslip = useCallback(async (month: string) => {

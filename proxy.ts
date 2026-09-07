@@ -1,11 +1,16 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
-const PUBLIC_PATHS = ["/", "/sign-in", "/sign-up", "/access-ended", "/verify-code"]
+const PUBLIC_PATHS = ["/", "/sign-in", "/sign-up", "/access-ended", "/verify-code", "/employee-login"]
 // The two endpoints an unverified session needs to actually get verified —
 // must stay reachable even while otp_verified is false, or nobody could
 // ever complete the flow.
 const OTP_API_PATHS = ["/api/signup-otp/request", "/api/signup-otp/verify"]
+// The employee portal's own login (email + last 4 of KRA PIN) — unlike the
+// two above, this runs with NO session at all (that's the entire point: an
+// employee arrives with nothing but their email), so it needs to be
+// reachable pre-auth, not just pre-verification.
+const PORTAL_LOGIN_API_PATH = "/api/portal-login"
 
 // Evaluation-access cutoff: from this instant on, only an exempted account
 // may use the app — every other authenticated session gets redirected to
@@ -62,7 +67,7 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
-  const isPublicPath = PUBLIC_PATHS.includes(pathname)
+  const isPublicPath = PUBLIC_PATHS.includes(pathname) || pathname === PORTAL_LOGIN_API_PATH
 
   // One profile fetch per authenticated request, reused by every gate below
   // instead of querying separately for each — otp_verified/role together.

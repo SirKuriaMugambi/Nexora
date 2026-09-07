@@ -1,23 +1,14 @@
 import { NextResponse } from "next/server"
 import { createSupabaseAdminClient } from "@/lib/supabase-server"
 import { requireRole } from "@/lib/supabase"
-import { randomBytes } from "crypto"
 
-// Generates a random, readable-enough-to-relay-verbally password —
-// 12 characters, mixed case + digits, no ambiguous-looking characters
-// (0/O, 1/l/I) since this gets read aloud or typed from a screenshot.
-function generatePassword(): string {
-  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
-  const bytes = randomBytes(12)
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("")
-}
-
-// Provisions (or resets) an employee's self-service portal login — the
-// ONLY way an employee account gets created; there is no public sign-up
-// path to it. Deliberately mirrors how every admin-set password this
-// session has worked: generated here, returned once in the response,
-// never emailed — the finance manager relays it directly. Employee
-// portal accounts also skip the sign-up OTP gate (otp_verified is set
+// Provisions an employee's self-service portal access — the ONLY way an
+// employee account gets created; there is no public sign-up path to it.
+// There is no password at all: sign-in is email + the last 4 characters of
+// the employee's own KRA PIN, already on file below (see
+// app/api/portal-login), so there's nothing to generate, show, or relay
+// here — just flip the account on.
+// Employee portal accounts skip the sign-up OTP gate (otp_verified is set
 // true immediately) since they were never a public self-signup in the
 // first place, and are exempted from the eval-access cutoff in proxy.ts.
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -48,24 +39,17 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     )
   }
 
-  const password = generatePassword()
-
-  // Existing account: this is a reset, not a fresh provision — just set a
-  // new password, everything else (role, the portal_user_id link) is
-  // already correct.
+  // Already provisioned — nothing to do, there's no password to reset.
   if (employee.portal_user_id) {
-    const { error: updateError } = await admin.auth.admin.updateUserById(employee.portal_user_id, { password })
-    if (updateError) {
-      return NextResponse.json({ error: `Failed to reset password: ${updateError.message}` }, { status: 500 })
-    }
-    return NextResponse.json({ email: employee.email, password, reset: true })
+    return NextResponse.json({ email: employee.email, alreadyEnabled: true })
   }
 
-  // Fresh provision. email_confirm skips Supabase's own confirmation email —
-  // this account is finance-manager-vouched, there's nothing to confirm.
+  // Fresh provision. No password set at all — this account can only ever
+  // sign in via the emailed-code flow. email_confirm skips Supabase's own
+  // confirmation email — this account is finance-manager-vouched, there's
+  // nothing to confirm.
   const { data: created, error: createError } = await admin.auth.admin.createUser({
     email: employee.email,
-    password,
     email_confirm: true,
     // NOT role — the profile trigger ignores it (see below); setting it
     // here would be a no-op that misleadingly implies otherwise.
@@ -109,5 +93,5 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: `Account created but failed to link it to the employee record: ${linkError.message}` }, { status: 500 })
   }
 
-  return NextResponse.json({ email: employee.email, password, reset: false })
+  return NextResponse.json({ email: employee.email, alreadyEnabled: false })
 }

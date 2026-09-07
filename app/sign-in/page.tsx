@@ -133,6 +133,12 @@ export default function SignInPage() {
             <span>AES-256 SSL SECURED</span>
           </div>
         </div>
+
+        <div className="text-center">
+          <Link href="/employee-login" className={`text-[10px] font-mono ${accentText} hover:underline font-semibold`}>
+            Employee? Access your payslips &amp; P9 forms →
+          </Link>
+        </div>
       </div>
     </div>
   )
