@@ -36,6 +36,7 @@ import {
   Clock,
   Briefcase,
   IdCard,
+  FolderLock,
 } from "lucide-react";
 
 interface NavItem {
@@ -149,6 +150,12 @@ export default function WorkspaceLayout({
           name: "Document Store",
           href: "/document-store",
           icon: FolderArchive,
+        },
+        {
+          name: "Staff Documents",
+          href: "/staff-documents",
+          icon: FolderLock,
+          restrictedToRole: "finance_manager",
         },
       ],
     },
