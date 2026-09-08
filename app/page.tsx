@@ -14,10 +14,10 @@ export default function HomePage() {
         
         <div className="space-y-2">
           <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Chrysal Africa FinOps Suite
+            Nexora
           </h1>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 max-w-xs mx-auto leading-relaxed">
-            Minimalist financial operations and compliance platform for institutional accounting, reconciliation, and regulatory reporting.
+            Financial operations and compliance — payroll, statutory filing, reconciliation and reporting.
           </p>
         </div>
 

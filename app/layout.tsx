@@ -15,8 +15,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FinOpsAi — Chrysal Africa Suite",
-  description: "Minimalist financial operations and compliance platform",
+  title: "Nexora — Financial Operations",
+  description: "Financial operations and compliance — payroll, statutory filing, reconciliation and reporting.",
+  icons: {
+    icon: [
+      { url: "/nexora-mark-64.png", sizes: "64x64", type: "image/png" },
+      { url: "/nexora-mark.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/apple-icon.png",
+  },
 };
 
 export default function RootLayout({

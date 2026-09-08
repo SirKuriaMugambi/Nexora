@@ -51,11 +51,11 @@ export async function sendSignupOtpEmail(params: {
   const from = process.env.PAYSLIP_FROM_EMAIL ?? "payroll@chrysal-africa.co.ke"
 
   const { error } = await resend.emails.send({
-    from: `Chrysal FinOps <${from}>`,
+    from: `Nexora <${from}>`,
     to: params.ownerEmail,
     subject: `New sign-up request — ${params.newUserName}`,
     text:
-      `Someone just tried to create an account on Chrysal FinOps:\n\n` +
+      `Someone just tried to create an account on Nexora:\n\n` +
       `  Name:  ${params.newUserName}\n` +
       `  Email: ${params.newUserEmail}\n\n` +
       `Their verification code is: ${params.code}\n\n` +

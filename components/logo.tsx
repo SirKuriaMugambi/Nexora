@@ -1,36 +1,43 @@
 import React from "react"
+import Image from "next/image"
 
 interface LogoProps {
   className?: string
   iconOnly?: boolean
+  /** Pixel size of the mark. The wordmark scales with it. */
+  size?: number
 }
 
-export default function Logo({ className = "", iconOnly = false }: LogoProps) {
+/**
+ * The Nexora lockup: the mark as a transparent image, the wordmark as text.
+ *
+ * The supplied artwork is a glowing blue mark on a near-black background with
+ * a white wordmark. Neither survives a light theme as-is — the background
+ * would show as a dark square and the white wordmark would disappear. So the
+ * mark is keyed to transparency (the blue reads on either theme) and the
+ * wordmark is set in text here, inheriting the theme's foreground colour
+ * rather than being baked into a picture. See
+ * scratch-make-logo-assets.py's header for how the assets were cut.
+ */
+export default function Logo({ className = "", iconOnly = false, size = 22 }: LogoProps) {
   return (
     <div className={`flex items-center gap-2.5 ${className}`}>
-      {/* Sleek, geometric flower & ledger icon */}
-      <svg
-        className="h-5 w-5 shrink-0 text-zinc-950 dark:text-zinc-50 transition-colors"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        {/* Core geometric grid */}
-        <circle cx="12" cy="12" r="3" className="stroke-zinc-400 dark:stroke-zinc-600" strokeDasharray="1.5 1.5" />
-
-        {/* Abstract structural petals (representing financial segments converging) */}
-        <path d="M12 2a4 4 0 0 1 4 4v6H8V6a4 4 0 0 1 4-4z" />
-        <path d="M12 22a4 4 0 0 1-4-4v-6h8v6a4 4 0 0 1-4 4z" />
-        <path d="M2 12a4 4 0 0 1 4-4h6v8H6a4 4 0 0 1-4-4z" />
-        <path d="M22 12a4 4 0 0 1-4 4h-6v-8h6a4 4 0 0 1 4 4z" />
-      </svg>
+      <Image
+        src="/nexora-mark.png"
+        alt="Nexora"
+        width={size}
+        height={size}
+        priority
+        className="shrink-0 object-contain"
+        style={{ width: size, height: size }}
+      />
 
       {!iconOnly && (
-        <span className="font-mono text-[11px] font-bold uppercase tracking-widest text-zinc-900 dark:text-zinc-50">
-          Chrysal <span className="font-normal text-zinc-400 dark:text-zinc-500">FinOps</span>
+        <span
+          className="font-mono font-bold uppercase tracking-[0.18em] text-zinc-900 dark:text-zinc-50"
+          style={{ fontSize: Math.max(Math.round(size * 0.5), 10) }}
+        >
+          Nexora
         </span>
       )}
     </div>

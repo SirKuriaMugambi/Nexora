@@ -1,6 +1,6 @@
-# Chrysal FinOps AI — Supabase Backend Implementation Specification
+# Nexora — Supabase Backend Implementation Specification
 
-This document provides a production-ready blueprint for transitioning the Chrysal FinOps AI platform from localized mock state (`localStorage` and `lib/seeds.ts`) to a production-grade backend powered by **Supabase**.
+This document provides a production-ready blueprint for transitioning the Nexora platform from localized mock state (`localStorage` and `lib/seeds.ts`) to a production-grade backend powered by **Supabase**.
 
 ---
 

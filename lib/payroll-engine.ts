@@ -1,5 +1,5 @@
 /**
- * Chrysal FinOps AI — Kenyan Statutory Payroll Engine
+ * Nexora — Kenyan Statutory Payroll Engine
  *
  * Source of truth: reference-data/CA- AI Payroll automation project.xlsx
  *   Sheet "AI-Automation-workings" (Rows 25–51, 56–60, 62)
