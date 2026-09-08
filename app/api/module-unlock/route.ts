@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
-import { createHash } from "crypto"
+import { createHash, timingSafeEqual } from "crypto"
 import { requireRole } from "@/lib/supabase"
+import { clearRateLimit, consumeRateLimit, retryAfterLabel } from "@/lib/rate-limit"
 
 // Second lock on the Payroll / Employee Master modules, on top of (never
 // instead of) the finance_manager role check: the role check is the real
@@ -23,10 +24,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "password is required" }, { status: 400 })
   }
 
+  // A 4-digit code is 10,000 guesses; a script would walk it in seconds.
+  // Counted per signed-in account, since reaching here already required a
+  // valid session.
+  const limit = await consumeRateLimit("module-unlock", guard.user.id)
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: `Too many incorrect codes. Try again ${retryAfterLabel(limit.retryAfter)}.` },
+      { status: 429 },
+    )
+  }
+
+  // Constant-time compare so response timing can't leak how much of the
+  // code was right. Both sides are fixed-length hex digests, so the lengths
+  // always match and timingSafeEqual cannot throw.
   const hash = createHash("sha256").update(body.password).digest("hex")
-  if (hash !== MODULE_PASSWORD_SHA256) {
+  const matches = timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(MODULE_PASSWORD_SHA256, "hex"))
+  if (!matches) {
     return NextResponse.json({ error: "Incorrect access code." }, { status: 403 })
   }
 
+  await clearRateLimit("module-unlock", guard.user.id)
   return NextResponse.json({ ok: true })
 }

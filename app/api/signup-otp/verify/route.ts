@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server"
 import { createSupabaseServerClient } from "@/lib/supabase"
 import { createSupabaseAdminClient } from "@/lib/supabase-server"
+import { clearRateLimit, consumeRateLimit, retryAfterLabel } from "@/lib/rate-limit"
 
 // Verifies the code for the CURRENTLY AUTHENTICATED session against what
 // was stored by /api/signup-otp/request. On success, clears the code (so it
 // can't be replayed) and flips otp_verified — proxy.ts's gate checks that
 // flag on every request to decide whether this account can use the app.
 //
-// No attempt limit yet — a 6-digit code has 1,000,000 combinations, so this
-// needs rate limiting before it's relied on for anything beyond "requires a
-// code Tony was handed," which is the next piece of work.
+// Limited to 5 attempts per account per 15 minutes (see lib/rate-limit.ts),
+// which is what makes the 6-digit code meaningful rather than merely a speed
+// bump for a script.
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient()
   if (!supabase) {
@@ -30,6 +31,14 @@ export async function POST(request: Request) {
   const admin = createSupabaseAdminClient()
   if (!admin) {
     return NextResponse.json({ error: "Backend is not configured" }, { status: 503 })
+  }
+
+  const limit = await consumeRateLimit("signup-otp", user.id)
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: `Too many incorrect codes. Try again ${retryAfterLabel(limit.retryAfter)}.` },
+      { status: 429 },
+    )
   }
 
   const { data: profile } = await admin
@@ -63,5 +72,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: updateError.message }, { status: 500 })
   }
 
+  await clearRateLimit("signup-otp", user.id)
   return NextResponse.json({ ok: true })
 }

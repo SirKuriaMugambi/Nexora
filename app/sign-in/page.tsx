@@ -127,7 +127,9 @@ export default function SignInPage() {
 
         {/* Footer */}
         <div className="border-t dark:border-zinc-900 pt-4 flex flex-col sm:flex-row items-center justify-between text-[10px] text-zinc-400 font-mono">
-          <span>Need an account? <Link href="/sign-up" className={`${accentText} hover:underline font-semibold`}>Sign Up</Link></span>
+          {/* No sign-up link: registration is closed and accounts are created
+              by the finance manager (see app/sign-up/page.tsx). */}
+          <span>Accounts are issued by the finance manager</span>
           <div className="flex items-center gap-1 mt-1.5 sm:mt-0 text-[9px] text-emerald-600">
             <ShieldCheck className="h-3.5 w-3.5" />
             <span>AES-256 SSL SECURED</span>

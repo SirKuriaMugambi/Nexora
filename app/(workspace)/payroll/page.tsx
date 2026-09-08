@@ -870,14 +870,11 @@ export default function PayrollPage() {
           >
             <Download className="h-3.5 w-3.5" /><span>Export Register</span>
           </button>
-          <button
-            onClick={handleExportGL}
-            disabled={busyAction !== null}
-            className={`px-3 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed ${buttonRadius}`}
-          >
-            <FileSpreadsheet className="h-3.5 w-3.5" />
-            <span>{busyAction === "gl" ? "Preparing…" : "Export AX GL"}</span>
-          </button>
+          {/* The AX GL export used to sit here too, calling the same handler
+              as "Download AX GL CSV" further down — two buttons, one action.
+              Removed in favour of the GL Journal card, which keeps the CSV,
+              the Chrysal-format .xlsx upload and Post to AX together, where
+              the difference between them is visible. */}
         </div>
       </div>
 

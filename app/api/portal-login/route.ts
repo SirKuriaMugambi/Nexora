@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createSupabaseAdminClient } from "@/lib/supabase-server"
+import { callerIp, clearRateLimit, consumeRateLimit, retryAfterLabel } from "@/lib/rate-limit"
 
 // Unauthenticated by design (see proxy.ts's PUBLIC_PATHS) -- this is the
 // employee portal's only entry point, no session and no password involved
@@ -16,6 +17,22 @@ export async function POST(request: Request) {
   const admin = createSupabaseAdminClient()
   if (!admin) {
     return NextResponse.json({ error: "Backend is not configured" }, { status: 503 })
+  }
+
+  // The credential here is only 4 characters, so without a limit it is
+  // guessable in minutes by anyone who knows the email address. Counted
+  // against the address AND the caller's IP: the first stops one account
+  // being ground down, the second stops one attacker working through a list
+  // of addresses.
+  const ip = callerIp(request)
+  for (const [scope, key] of [["portal-login", email.trim()], ["portal-login-ip", ip]] as const) {
+    const limit = await consumeRateLimit(scope, key)
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: `Too many attempts. Try again ${retryAfterLabel(limit.retryAfter)}.` },
+        { status: 429 },
+      )
+    }
   }
 
   const { data: employee } = await admin
@@ -49,6 +66,11 @@ export async function POST(request: Request) {
   if (linkError || !linkData.properties?.hashed_token) {
     return NextResponse.json({ error: `Failed to sign you in: ${linkError?.message ?? "unknown error"}` }, { status: 500 })
   }
+
+  // Correct credential — reset both counters so an employee who fumbled a
+  // couple of times isn't carrying strikes into next month.
+  await clearRateLimit("portal-login", email.trim())
+  await clearRateLimit("portal-login-ip", ip)
 
   return NextResponse.json({ ok: true, hashed_token: linkData.properties.hashed_token })
 }
