@@ -231,6 +231,25 @@ export default function PayrollPage() {
     sent: string[]; skippedNoEmail: string[]; failed: Array<{ id: string; error: string }>
   } | null>(null)
 
+  // AX upload (.xlsx) inputs — voucher is Tony's own AX running number
+  // (his sample: SAL0000138); the default only mirrors the shape and encodes
+  // the period. Posting date defaults to the last day of the pay month.
+  // Derived per month (no effect): an override typed for one month never
+  // silently carries over to another.
+  const axDefaults = useMemo(() => {
+    const [year, month] = apiMonth.split("-")
+    const lastDay = new Date(Number(year), Number(month), 0)
+    return {
+      voucher: `SAL${year.slice(2)}${month}001`,
+      date: `${year}-${month}-${String(lastDay.getDate()).padStart(2, "0")}`,
+    }
+  }, [apiMonth])
+  const [axOverride, setAxOverride] = useState<{ month: string; voucher: string; date: string } | null>(null)
+  const axVoucher = axOverride?.month === apiMonth ? axOverride.voucher : axDefaults.voucher
+  const axPostingDate = axOverride?.month === apiMonth ? axOverride.date : axDefaults.date
+  const setAxVoucher = (voucher: string) => setAxOverride({ month: apiMonth, voucher, date: axPostingDate })
+  const setAxPostingDate = (date: string) => setAxOverride({ month: apiMonth, voucher: axVoucher, date })
+
   // AX journal posting state
   const [postingToAx, setPostingToAx] = useState(false)
   const [axJournal, setAxJournal] = useState<{
@@ -521,6 +540,35 @@ export default function PayrollPage() {
       )
     } catch (err) {
       setWorkflowError(err instanceof Error ? err.message : "Failed to generate the AX GL journal.")
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  // Downloads the SAME numbers in Tony's exact Dynamics AX upload layout
+  // (lib/ax-journal-builder.ts) — ten columns, credits/rounding/debits/bank
+  // blocks, "Salaries YYMM-…" texts — as an .xlsx he can import as-is or lay
+  // beside his own sheet line by line. The voucher is his own AX sequence,
+  // so it's typed in here rather than guessed.
+  async function handleExportAxJournal() {
+    if (busyAction) return
+    setBusyAction("ax-xlsx")
+    setWorkflowError(null)
+    try {
+      const params = new URLSearchParams({ month: apiMonth, voucher: axVoucher.trim(), date: axPostingDate })
+      const response = await fetch(`/api/payroll/ax-journal?${params}`)
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload.error ?? "Failed to generate the AX journal upload.")
+      }
+      triggerDownload(await response.blob(), `chrysal-ax-payroll-journal-${apiMonth}.xlsx`)
+      addAuditLog(
+        "AX JOURNAL UPLOAD DOWNLOADED",
+        apiMonth,
+        `Downloaded the Dynamics AX journal upload (.xlsx, voucher ${axVoucher.trim() || "default"}) for the ${apiMonth} payroll run.`,
+      )
+    } catch (err) {
+      setWorkflowError(err instanceof Error ? err.message : "Failed to generate the AX journal upload.")
     } finally {
       setBusyAction(null)
     }
@@ -1245,6 +1293,41 @@ export default function PayrollPage() {
                 <Download className="h-3.5 w-3.5" />
                 <span>{busyAction === "gl" ? "Preparing file…" : "Download AX GL CSV"}</span>
               </button>
+
+              {/* Tony's actual AX upload layout — voucher + posting date are
+                  his to set, everything else comes from the run. */}
+              <div className="mt-3 pt-3 border-t dark:border-zinc-900 space-y-2">
+                <p className="text-[9px] font-mono uppercase text-zinc-400">AX Journal Upload (Excel, Chrysal format)</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-0.5">
+                    <label className="text-[9px] font-mono uppercase text-zinc-400">Voucher No.</label>
+                    <input
+                      value={axVoucher}
+                      onChange={(e) => setAxVoucher(e.target.value)}
+                      placeholder="SAL0000138"
+                      maxLength={20}
+                      className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-zinc-400 rounded"
+                    />
+                  </div>
+                  <div className="space-y-0.5">
+                    <label className="text-[9px] font-mono uppercase text-zinc-400">Posting Date</label>
+                    <input
+                      type="date"
+                      value={axPostingDate}
+                      onChange={(e) => setAxPostingDate(e.target.value)}
+                      className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-zinc-400 rounded"
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={handleExportAxJournal}
+                  disabled={busyAction !== null || !axVoucher.trim() || !axPostingDate}
+                  className={`w-full py-2 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 font-mono text-[10px] uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${buttonRadius}`}
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  <span>{busyAction === "ax-xlsx" ? "Preparing file…" : "Download AX Upload (.xlsx)"}</span>
+                </button>
+              </div>
 
               {/* The shared error banner sits at the top of the page, far
                   off-screen from here — repeat it next to the button that

@@ -69,3 +69,56 @@ export const PAYROLL_LIABILITY_DIMENSION = {
   department: "FIN",
   costCentre: "121",
 } as const
+
+/**
+ * The FULL Dynamics AX account strings, exactly as they appear in the
+ * finance manager's own AX payroll upload ("AX Payroll format -sample.xlsx",
+ * Sheet1, the August 2026 voucher SAL0000138). This is the first
+ * document-level source for the complete "MainAccount-SubAccount[-CostCentre]"
+ * strings AX actually imports — the bare 5-digit codes above only ever came
+ * from the UI mock. Every entry here is SOURCED from that file; there are no
+ * assumptions in this block. It also settles two of the open questions in the
+ * PAYROLL_GL_ACCOUNTS notes: PAYE is NOT booked to 11500 (it sits with NITA
+ * and AHL in 18150-09060), and pension has its own expense line (41800) with
+ * its payable in the same 11500-06020 clearing account as net pay.
+ *
+ * Used by lib/ax-journal-builder.ts. PAYROLL_GL_ACCOUNTS above still drives
+ * the older CSV journal and its tests; both are kept until Tony confirms the
+ * AX upload is the one he'll actually post from.
+ */
+export const AX_JOURNAL_ACCOUNTS = {
+  // ── Credit side (company-wide, no cost centre in the account string) ─────
+  /** Net pay, NSSF, PRS, HELB, SACCO, PENSION, SHIF, bank-loan recoveries. */
+  salariesClearing: "11500-06020",
+  /** Staff receivables — company/car loans and salary advances recovered. */
+  staffLoansReceivable: "14320-04230",
+  /** KRA-side payables: PAYE, NITA, AHL. */
+  taxPayable: "18150-09060",
+  /** Always present at 0 in Tony's upload — AX's own rounding line. */
+  rounding: "61280-61320-201-KE",
+
+  // ── Debit side (cost-centred: `${prefix}-${costCentre}`) ──────────────────
+  salariesExpensePrefix: "41000-40110",
+  /** Production bonus / sales commission / overtime — "PROD", "SALES". */
+  variablePayExpensePrefix: "41100-41010",
+  internSalariesExpensePrefix: "41300-41030",
+  nitaExpensePrefix: "41500-41050",
+  /** Employer NSSF and employer AHL. */
+  employerStatutoryExpensePrefix: "41770-41100",
+  employerPensionExpensePrefix: "41800-41110",
+
+  // ── Bank module ────────────────────────────────────────────────────────────
+  bankAccount: "BARKSH",
+} as const
+
+/**
+ * The text suffix Tony uses on the 41100 (variable pay) line depends on the
+ * cost centre: production overtime/bonus is "PROD", sales commission is
+ * "SALES". Only those two appear in his sample; any other cost centre with
+ * OT/bonus falls back to "OT".
+ */
+export const AX_VARIABLE_PAY_LABEL_BY_COST_CENTRE: Record<string, string> = {
+  "511": "PROD",
+  "512": "PROD",
+  "204": "SALES",
+}
