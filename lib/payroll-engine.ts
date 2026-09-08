@@ -277,7 +277,20 @@ export interface GLPostingSummary {
 export interface CostCentreBreakdown {
   code: string
   name: string
+  /** Includes the non-cash fringe benefit, which is taxed but never paid. */
   gross: number
+  /**
+   * The non-cash portion of gross — housing, a car and the like. Taxed inside
+   * gross, never disbursed, and never posted to a cost-centre expense line.
+   */
+  fringe: number
+  /**
+   * gross - fringe: what the cost centre actually bears in cash. This is the
+   * basis the finance manager's own workbook and the AX journal both use, so
+   * it is the figure to compare against them — reading gross against a
+   * cash-basis sheet is what made two correct sets of numbers look wrong.
+   */
+  cash: number
   net: number
   paye: number
   pension_er: number
@@ -298,6 +311,8 @@ export type EmployeeSummary = {
   shif: number; ahl: number; defined_pension_ee: number; defined_pension_er: number;
   helb: number; company_loan: number; bank_loan: number; sacco: number; advances: number;
   net_salary: number;
+  /** Non-cash benefit inside gross_salary. Needed for the cash-basis view. */
+  fringe_benefit: number;
 }
 
 const CC_NAMES: Record<string, string> = {
@@ -350,13 +365,14 @@ export function buildCostCentreBreakdown(employees: EmployeeSummary[]): CostCent
         map.set(cc, {
           code: cc,
           name: CC_NAMES[cc] ?? cc,
-          gross: 0, net: 0, paye: 0,
+          gross: 0, fringe: 0, cash: 0, net: 0, paye: 0,
           pension_er: 0, nssf: 0, ahl: 0, shif: 0,
           headcount: 0,
         })
       }
       const row = map.get(cc)!
       row.gross += emp.gross_salary * share
+      row.fringe += (emp.fringe_benefit ?? 0) * share
       row.net += emp.net_salary * share
       row.paye += emp.net_paye * share
       row.pension_er += emp.defined_pension_er * share
@@ -365,6 +381,12 @@ export function buildCostCentreBreakdown(employees: EmployeeSummary[]): CostCent
       row.shif += emp.shif * share
       row.headcount += 1
     }
+  }
+
+  // Cash is derived last, from the accumulated figures, so it is exactly
+  // gross - fringe for the centre rather than a separately rounded sum.
+  for (const row of map.values()) {
+    row.cash = +(row.gross - row.fringe).toFixed(2)
   }
 
   return Array.from(map.values()).sort((a, b) => a.code.localeCompare(b.code))

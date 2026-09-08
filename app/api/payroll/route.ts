@@ -216,6 +216,7 @@ export async function POST(request: Request) {
     sacco: employee.sacco,
     advances: employee.advances,
     net_salary: result.net_salary,
+    fringe_benefit: employee.fringe_benefit ?? 0,
   } satisfies EmployeeSummary))
 
   const variance = buildPayrollVarianceReport(payrollRun)

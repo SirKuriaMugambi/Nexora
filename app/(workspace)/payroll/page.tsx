@@ -76,6 +76,7 @@ function toSummary(emp: Employee): EmployeeSummary {
     sacco: emp.sacco ?? 0,
     advances: emp.advances ?? 0,
     net_salary: emp.net_salary,
+    fringe_benefit: emp.fringe_benefit ?? 0,
   }
 }
 
@@ -1351,10 +1352,23 @@ export default function PayrollPage() {
                       </div>
                       <span className="text-[9px] font-mono text-zinc-400">{cc.headcount} staff</span>
                     </div>
+                    {/* Gross, then what comes out of it to reach the cash the
+                        centre actually bears. Cash is the figure that lines up
+                        with the AX journal and the finance manager's own
+                        workbook; comparing gross against a cash-basis sheet is
+                        what once made two correct sets of numbers look wrong. */}
                     <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
                       <div>
                         <p className="text-[8px] uppercase text-zinc-400">Gross</p>
                         <p>{fmt(cc.gross)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] uppercase text-zinc-400">Less Fringe</p>
+                        <p className="text-zinc-500">{fmt(cc.fringe)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] uppercase text-zinc-400" title="Gross less the non-cash fringe benefit — the basis the AX journal uses">Cash Cost</p>
+                        <p className="font-bold">{fmt(cc.cash)}</p>
                       </div>
                       <div>
                         <p className="text-[8px] uppercase text-zinc-400">PAYE</p>

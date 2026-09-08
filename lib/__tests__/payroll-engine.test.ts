@@ -285,8 +285,8 @@ describe("computePayroll", () => {
 describe("buildGLPosting", () => {
   it("sums gross, statutory, and net totals across employees, with NITA at a flat KES 50/head", () => {
     const summaries = [
-      { id: "1", name: "A", kra_pin: "P1", cost_centre: "511", gross_salary: 100000, net_paye: 20010.35, nssf_t1: 420, nssf_t2: 1740, shif: 2750, ahl: 1500, defined_pension_ee: 5000, defined_pension_er: 10000, helb: 0, company_loan: 0, bank_loan: 0, sacco: 0, advances: 0, net_salary: 68579.65 },
-      { id: "2", name: "B", kra_pin: "P2", cost_centre: "121", gross_salary: 50000, net_paye: 5000, nssf_t1: 420, nssf_t2: 1740, shif: 1375, ahl: 750, defined_pension_ee: 2500, defined_pension_er: 5000, helb: 0, company_loan: 0, bank_loan: 0, sacco: 0, advances: 0, net_salary: 38215 },
+      { id: "1", name: "A", kra_pin: "P1", cost_centre: "511", gross_salary: 100000, net_paye: 20010.35, nssf_t1: 420, nssf_t2: 1740, shif: 2750, ahl: 1500, defined_pension_ee: 5000, defined_pension_er: 10000, helb: 0, company_loan: 0, bank_loan: 0, sacco: 0, advances: 0, net_salary: 68579.65, fringe_benefit: 0 },
+      { id: "2", name: "B", kra_pin: "P2", cost_centre: "121", gross_salary: 50000, net_paye: 5000, nssf_t1: 420, nssf_t2: 1740, shif: 1375, ahl: 750, defined_pension_ee: 2500, defined_pension_er: 5000, helb: 0, company_loan: 0, bank_loan: 0, sacco: 0, advances: 0, net_salary: 38215, fringe_benefit: 0 },
     ]
 
     const gl = buildGLPosting(summaries)
@@ -299,8 +299,8 @@ describe("buildGLPosting", () => {
 describe("buildCostCentreBreakdown", () => {
   it("groups employees by cost centre and sums per-centre totals", () => {
     const summaries = [
-      { id: "1", name: "A", kra_pin: "P1", cost_centre: "511", gross_salary: 100000, net_paye: 20000, nssf_t1: 420, nssf_t2: 1740, shif: 2750, ahl: 1500, defined_pension_ee: 5000, defined_pension_er: 10000, helb: 0, company_loan: 0, bank_loan: 0, sacco: 0, advances: 0, net_salary: 68580 },
-      { id: "2", name: "B", kra_pin: "P2", cost_centre: "511", gross_salary: 50000, net_paye: 5000, nssf_t1: 420, nssf_t2: 1740, shif: 1375, ahl: 750, defined_pension_ee: 2500, defined_pension_er: 5000, helb: 0, company_loan: 0, bank_loan: 0, sacco: 0, advances: 0, net_salary: 38215 },
+      { id: "1", name: "A", kra_pin: "P1", cost_centre: "511", gross_salary: 100000, net_paye: 20000, nssf_t1: 420, nssf_t2: 1740, shif: 2750, ahl: 1500, defined_pension_ee: 5000, defined_pension_er: 10000, helb: 0, company_loan: 0, bank_loan: 0, sacco: 0, advances: 0, net_salary: 68580, fringe_benefit: 4000 },
+      { id: "2", name: "B", kra_pin: "P2", cost_centre: "511", gross_salary: 50000, net_paye: 5000, nssf_t1: 420, nssf_t2: 1740, shif: 1375, ahl: 750, defined_pension_ee: 2500, defined_pension_er: 5000, helb: 0, company_loan: 0, bank_loan: 0, sacco: 0, advances: 0, net_salary: 38215, fringe_benefit: 0 },
     ]
 
     const breakdown = buildCostCentreBreakdown(summaries)
@@ -308,5 +308,34 @@ describe("buildCostCentreBreakdown", () => {
     expect(breakdown[0].code).toBe("511")
     expect(breakdown[0].headcount).toBe(2)
     expect(breakdown[0].gross).toBeCloseTo(150000, 2)
+    // Cash is what the centre actually bears: gross less the non-cash
+    // fringe benefit. This is the basis the AX journal and the finance
+    // manager's workbook both use.
+    expect(breakdown[0].fringe).toBeCloseTo(4000, 2)
+    expect(breakdown[0].cash).toBeCloseTo(146000, 2)
+  })
+
+  it("splits fringe and cash across a shared employee's cost centres", () => {
+    // A General Manager on 50/50 puts half his fringe — and half his cash
+    // cost — into each centre, exactly as his gross is split.
+    const summaries = [
+      {
+        id: "GM", name: "GM", kra_pin: "P9", cost_centre: "121",
+        cost_centre_allocation: { "121": 0.5, "512": 0.5 },
+        gross_salary: 600000, net_paye: 100000, nssf_t1: 420, nssf_t2: 1740,
+        shif: 8250, ahl: 4500, defined_pension_ee: 20000, defined_pension_er: 40000,
+        helb: 0, company_loan: 0, bank_loan: 0, sacco: 0, advances: 0,
+        net_salary: 300000, fringe_benefit: 160000,
+      },
+    ]
+
+    const breakdown = buildCostCentreBreakdown(summaries)
+    expect(breakdown.map((b) => b.code)).toEqual(["121", "512"])
+    for (const row of breakdown) {
+      expect(row.gross).toBeCloseTo(300000, 2)
+      expect(row.fringe).toBeCloseTo(80000, 2)
+      expect(row.cash).toBeCloseTo(220000, 2)
+      expect(row.headcount).toBe(1)
+    }
   })
 })
