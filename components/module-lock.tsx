@@ -25,6 +25,25 @@ function getServerSnapshot(): boolean {
 }
 
 /**
+ * Re-locks the restricted modules. Called on sign-out — without it the
+ * unlock flag outlived the session, because signing out clears
+ * localStorage while this flag lives in sessionStorage, so the next person
+ * to sign in on the same tab walked straight into Payroll and Employee
+ * Master without being asked for the code. The whole point of this lock is
+ * the unattended-machine case, which is exactly that scenario.
+ */
+export function clearModuleUnlock() {
+  try {
+    sessionStorage.removeItem(STORAGE_KEY)
+  } catch {
+    // Nothing to clear if sessionStorage is unavailable.
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(CHANGE_EVENT))
+  }
+}
+
+/**
  * Second lock for the Payroll / Employee Master modules, layered on top of
  * the finance_manager role gate (which every API route still enforces —
  * that remains the real data boundary). This covers the unattended-machine

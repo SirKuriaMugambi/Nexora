@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { clearModuleUnlock } from "@/components/module-lock";
 import {
   Vendor,
   Invoice,
@@ -133,6 +134,11 @@ export function FinOpsProvider({ children }: { children: React.ReactNode }) {
     if (supabase) {
       await supabase.auth.signOut();
     }
+    // Re-lock Payroll and Employee Master. The module code lives in
+    // sessionStorage, which signing out does not touch on its own, so
+    // without this the next sign-in on the same tab skipped the code
+    // prompt entirely.
+    clearModuleUnlock();
     setCurrentUserState("");
     setCurrentUserRole(null);
     setCurrentUserEmail(null);
@@ -210,7 +216,11 @@ export function FinOpsProvider({ children }: { children: React.ReactNode }) {
           .select("*")
           .eq("is_deleted", false)
           .order("uploaded_at", { ascending: false }),
-        supabase.from("audit_logs").select("*").order("timestamp", { ascending: false }),
+        // Capped: the trail grows without bound and every sign-in was
+        // pulling the whole history into the browser before the app could
+        // render. The Audit Trail page shows the most recent entries; the
+        // full history stays queryable in the database.
+        supabase.from("audit_logs").select("*").order("timestamp", { ascending: false }).limit(250),
       ]);
 
       if (vendorsRes.data) setVendors(vendorsRes.data as Vendor[]);
