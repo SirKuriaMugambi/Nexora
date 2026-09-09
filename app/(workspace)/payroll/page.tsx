@@ -15,7 +15,8 @@ import {
   buildMasterRegisterCSV,
   type EmployeeSummary,
 } from "@/lib/payroll-engine"
-import { buildPayrollJournal } from "@/lib/journal-builder"
+import { buildAxPayrollJournal } from "@/lib/ax-journal-builder"
+import { KENYA_PAYROLL_RULES_2024 } from "@/lib/payroll-rules-config"
 import { validatePayrollRows } from "@/lib/payroll-validation"
 import ModuleLock from "@/components/module-lock"
 import type { Employee } from "@/lib/seeds"
@@ -316,12 +317,15 @@ export default function PayrollPage() {
   const validationErrors = useMemo(() => validationIssues.filter((i) => i.severity === "error"), [validationIssues])
   const validationWarnings = useMemo(() => validationIssues.filter((i) => i.severity === "warning"), [validationIssues])
 
-  // The real Dr/Cr journal, built client-side from the same pure function the
-  // server uses for Post-to-AX and the CSV download — so the GL tab shows the
-  // actual balanced entry before posting, not a separate hand-written summary.
-  const previewJournal = useMemo(
+  // The journal in Chrysal's OWN AX account structure — the same builder the
+  // .xlsx upload uses, so the panel lists every line that actually posts:
+  // salary and overtime per cost centre, employer NSSF, housing levy, pension
+  // and NITA, the staff-loan and tax payables, AX's rounding line and the bank
+  // block. The older summary showed only the six expense/payable groups from
+  // the UI mock's chart of accounts and left the rest off the screen.
+  const axPreview = useMemo(
     () =>
-      buildPayrollJournal(
+      buildAxPayrollJournal(
         apiMonth,
         employees.map((emp) => ({
           employee: {
@@ -329,9 +333,10 @@ export default function PayrollPage() {
             department: emp.department,
             cost_centre: emp.cost_centre,
             cost_centre_allocation: emp.cost_centre_allocation,
+            grade: emp.grade,
           },
-          inputs: {
-            base_salary: emp.base_salary,
+          entry: {
+            basic_salary: emp.base_salary,
             bonus_commission: emp.bonus_commission,
             fringe_benefit: emp.fringe_benefit,
             transport_allowance: emp.transport_allowance,
@@ -343,11 +348,24 @@ export default function PayrollPage() {
             company_loan: emp.company_loan,
             bank_loan: emp.bank_loan,
             sacco: emp.sacco,
+            nssf_t1: emp.nssf_t1 ?? 420,
+            nssf_t2: emp.nssf_t2 ?? 1740,
+            shif: emp.shif ?? emp.nhif,
+            ahl: emp.ahl ?? 0,
+            defined_pension_ee: emp.defined_pension_ee ?? 0,
+            employer_pension: emp.defined_pension_er ?? 0,
+            net_paye: emp.net_paye ?? emp.paye,
+            total_deductions: emp.deductions,
+            net_pay: emp.net_salary,
           },
-          result: { ...emp, total_deductions: emp.deductions },
         })),
+        {
+          voucher: axVoucher.trim() || "SAL",
+          postingDate: new Date(`${axPostingDate}T00:00:00`),
+          nitaFlatPerEmployee: KENYA_PAYROLL_RULES_2024.nitaFlatPerEmployee,
+        },
       ),
-    [employees, apiMonth],
+    [employees, apiMonth, axVoucher, axPostingDate],
   )
 
   const totals = useMemo(() => {
@@ -1255,31 +1273,42 @@ export default function PayrollPage() {
                   <span className="grid grid-cols-2 gap-8 text-right w-48"><span>DR</span><span>CR</span></span>
                 </div>
 
-                {previewJournal.lines.map((line) => (
-                  <div key={line.lineNumber} className={`flex justify-between py-1 gap-3 ${line.debit > 0 ? "" : "text-zinc-500"}`}>
-                    <span className="min-w-0">
-                      <span className="block truncate">
-                        {line.debit > 0 ? "Dr" : "Cr"}: {line.accountName} ({line.accountCode})
+                {axPreview.rows.map((line, i) => {
+                  const isDebit = line.amount > 0
+                  const isBank = line.module === "Bank"
+                  return (
+                    <div
+                      key={i}
+                      className={`flex justify-between py-1 gap-3 ${isDebit ? "" : "text-zinc-500"} ${isBank ? "opacity-70" : ""}`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate">
+                          {isBank ? "Bank" : isDebit ? "Dr" : "Cr"}: {line.number}
+                        </span>
+                        <span className="block text-[9px] text-zinc-400 truncate">
+                          {line.text || `${line.module} — ${line.currency}`}
+                        </span>
                       </span>
-                      <span className="block text-[9px] text-zinc-400">
-                        {line.dimension.department}/{line.dimension.costCentre}
+                      <span className="grid grid-cols-2 gap-8 text-right w-48 shrink-0">
+                        <span>{isDebit ? fmtD(line.amount) : <span className="text-zinc-400">—</span>}</span>
+                        <span>{!isDebit ? fmtD(Math.abs(line.amount)) : <span className="text-zinc-400">—</span>}</span>
                       </span>
-                    </span>
-                    <span className="grid grid-cols-2 gap-8 text-right w-48 shrink-0">
-                      <span>{line.debit > 0 ? fmtD(line.debit) : <span className="text-zinc-400">—</span>}</span>
-                      <span>{line.credit > 0 ? fmtD(line.credit) : <span className="text-zinc-400">—</span>}</span>
-                    </span>
-                  </div>
-                ))}
+                    </div>
+                  )
+                })}
 
                 <div className="border-t-2 dark:border-zinc-700 pt-2 mt-2 flex justify-between font-bold">
-                  <span className={previewJournal.isBalanced ? "text-emerald-600" : "text-rose-500"}>
-                    Total {previewJournal.isBalanced ? "(Balanced ✓)" : "(NOT BALANCED ✗)"}
+                  <span className={axPreview.isBalanced ? "text-emerald-600" : "text-rose-500"}>
+                    Ledger Total {axPreview.isBalanced ? "(Balanced ✓)" : "(NOT BALANCED ✗)"}
                   </span>
                   <span className="grid grid-cols-2 gap-8 text-right w-48 shrink-0">
-                    <span>{fmtD(previewJournal.totalDebit)}</span>
-                    <span>{fmtD(previewJournal.totalCredit)}</span>
+                    <span>{fmtD(axPreview.ledgerDebitTotal)}</span>
+                    <span>{fmtD(axPreview.ledgerCreditTotal)}</span>
                   </span>
+                </div>
+                <div className="flex justify-between text-[10px] text-zinc-400 pt-1">
+                  <span>Bank block — cash leaving {axPreview.rows.filter((r) => r.module === "Bank").length ? "BARKSH" : "—"}</span>
+                  <span>{fmtD(axPreview.bankTotal)}</span>
                 </div>
               </div>
 
