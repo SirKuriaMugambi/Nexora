@@ -1357,38 +1357,44 @@ export default function PayrollPage() {
                         with the AX journal and the finance manager's own
                         workbook; comparing gross against a cash-basis sheet is
                         what once made two correct sets of numbers look wrong. */}
+                    {/* Shown to the cent, not rounded to whole shillings.
+                        These are reconciled line by line against the AX
+                        journal and the finance manager's workbook, and a
+                        display that rounds 2,224,672.81 up to 2,224,673 reads
+                        as a real difference against a sheet carrying the
+                        cents — which cost an afternoon to chase once. */}
                     <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
                       <div>
                         <p className="text-[8px] uppercase text-zinc-400">Gross</p>
-                        <p>{fmt(cc.gross)}</p>
+                        <p>{fmtD(cc.gross)}</p>
                       </div>
                       <div>
                         <p className="text-[8px] uppercase text-zinc-400">Less Fringe</p>
-                        <p className="text-zinc-500">{fmt(cc.fringe)}</p>
+                        <p className="text-zinc-500">{fmtD(cc.fringe)}</p>
                       </div>
                       <div>
-                        <p className="text-[8px] uppercase text-zinc-400" title="Gross less the non-cash fringe benefit — the basis the AX journal uses">Cash Cost</p>
-                        <p className="font-bold">{fmt(cc.cash)}</p>
+                        <p className="text-[8px] uppercase text-zinc-400" title="Gross less the non-cash fringe benefit — the basis the AX journal and the payroll workbook both use">Cash Cost</p>
+                        <p className="font-bold">{fmtD(cc.cash)}</p>
                       </div>
                       <div>
                         <p className="text-[8px] uppercase text-zinc-400">PAYE</p>
-                        <p className="text-rose-500">{fmt(cc.paye)}</p>
+                        <p className="text-rose-500">{fmtD(cc.paye)}</p>
                       </div>
                       <div>
                         <p className="text-[8px] uppercase text-zinc-400">Net</p>
-                        <p className="text-emerald-600">{fmt(cc.net)}</p>
+                        <p className="text-emerald-600">{fmtD(cc.net)}</p>
                       </div>
                       <div>
                         <p className="text-[8px] uppercase text-zinc-400">Pension ER</p>
-                        <p className="text-zinc-500">{fmt(cc.pension_er)}</p>
+                        <p className="text-zinc-500">{fmtD(cc.pension_er)}</p>
                       </div>
                       <div>
                         <p className="text-[8px] uppercase text-zinc-400">NSSF</p>
-                        <p>{fmt(cc.nssf)}</p>
+                        <p>{fmtD(cc.nssf)}</p>
                       </div>
                       <div>
                         <p className="text-[8px] uppercase text-zinc-400">AHL</p>
-                        <p>{fmt(cc.ahl)}</p>
+                        <p>{fmtD(cc.ahl)}</p>
                       </div>
                     </div>
                   </div>
