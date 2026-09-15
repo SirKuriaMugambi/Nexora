@@ -18,6 +18,7 @@ import {
 import { buildAxPayrollJournal } from "@/lib/ax-journal-builder"
 import { rulesForMonth } from "@/lib/payroll-rules-config"
 import { validatePayrollRows } from "@/lib/payroll-validation"
+import { PreflightPanel } from "@/components/preflight-panel"
 import ModuleLock from "@/components/module-lock"
 import type { Employee } from "@/lib/seeds"
 import type { ImportPreviewResult } from "@/app/api/payroll/import/route"
@@ -904,36 +905,8 @@ export default function PayrollPage() {
       )}
 
       {/* Pre-flight validation results */}
-      {validationErrors.length > 0 && (
-        <div className="p-3 border border-rose-200 bg-rose-50/40 dark:bg-rose-950/20 dark:border-rose-900 text-[11px] space-y-1">
-          <p className="font-bold font-mono uppercase text-[10px] tracking-wider text-rose-600 dark:text-rose-400">
-            {validationErrors.length} blocking issue{validationErrors.length > 1 ? "s" : ""} — Run Payroll is disabled until these are fixed in Employee Master
-          </p>
-          {validationErrors.slice(0, 8).map((issue, i) => (
-            <p key={i} className="text-rose-700 dark:text-rose-400">
-              <span className="font-mono font-bold">{issue.employeeId}</span> ({issue.name}): {issue.message}
-            </p>
-          ))}
-          {validationErrors.length > 8 && (
-            <p className="text-rose-500">…and {validationErrors.length - 8} more.</p>
-          )}
-        </div>
-      )}
-      {validationWarnings.length > 0 && (
-        <div className="p-3 border border-amber-200 bg-amber-50/40 dark:bg-amber-950/20 dark:border-amber-900 text-[11px] space-y-1">
-          <p className="font-bold font-mono uppercase text-[10px] tracking-wider text-amber-600 dark:text-amber-400">
-            {validationWarnings.length} warning{validationWarnings.length > 1 ? "s" : ""} — the run can proceed, but some outputs will skip these employees
-          </p>
-          {validationWarnings.slice(0, 5).map((issue, i) => (
-            <p key={i} className="text-amber-700 dark:text-amber-400">
-              <span className="font-mono font-bold">{issue.employeeId}</span> ({issue.name}): {issue.message}
-            </p>
-          ))}
-          {validationWarnings.length > 5 && (
-            <p className="text-amber-500">…and {validationWarnings.length - 5} more. Fix these in Employee Master.</p>
-          )}
-        </div>
-      )}
+      <PreflightPanel issues={validationErrors} severity="error" />
+      <PreflightPanel issues={validationWarnings} severity="warning" />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

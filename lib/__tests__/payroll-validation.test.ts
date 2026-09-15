@@ -38,6 +38,11 @@ describe("validatePayrollRows", () => {
     expect(issues[1].message).toMatch(/EMP011 is also assigned to 1011/)
   })
 
+  it("tags every issue with a stable cause code", () => {
+    const issues = validatePayrollRows([row({ kra_pin: "", email: null, emp_code: "" })])
+    expect(issues.map((i) => i.code)).toEqual(["missing_kra_pin", "missing_bank_routing", "missing_email"])
+  })
+
   it("flags missing KRA PIN as an error", () => {
     const issues = validatePayrollRows([row({ kra_pin: "" })])
     expect(issues).toHaveLength(1)
