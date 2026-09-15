@@ -1,4 +1,5 @@
 import { computePayroll } from "@/lib/payroll-engine"
+import { KENYA_PAYROLL_RULES_2024 } from "@/lib/payroll-rules-config"
 import { buildPayrollJournal, type PayrollJournalEmployeeInput } from "@/lib/journal-builder"
 import { PAYROLL_GL_ACCOUNTS, PAYROLL_LIABILITY_DIMENSION } from "@/lib/gl-accounts-config"
 
@@ -28,7 +29,7 @@ function makeEmployee(
   return {
     employee: { id: overrides.id, department: overrides.department, cost_centre: overrides.cost_centre, cost_centre_allocation },
     inputs,
-    result: computePayroll(inputs),
+    result: computePayroll(inputs, KENYA_PAYROLL_RULES_2024),
   }
 }
 

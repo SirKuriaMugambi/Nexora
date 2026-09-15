@@ -16,7 +16,7 @@ import {
   type EmployeeSummary,
 } from "@/lib/payroll-engine"
 import { buildAxPayrollJournal } from "@/lib/ax-journal-builder"
-import { KENYA_PAYROLL_RULES_2024 } from "@/lib/payroll-rules-config"
+import { rulesForMonth } from "@/lib/payroll-rules-config"
 import { validatePayrollRows } from "@/lib/payroll-validation"
 import ModuleLock from "@/components/module-lock"
 import type { Employee } from "@/lib/seeds"
@@ -362,7 +362,7 @@ export default function PayrollPage() {
         {
           voucher: axVoucher.trim() || "SAL",
           postingDate: new Date(`${axPostingDate}T00:00:00`),
-          nitaFlatPerEmployee: KENYA_PAYROLL_RULES_2024.nitaFlatPerEmployee,
+          nitaFlatPerEmployee: rulesForMonth(apiMonth).nitaFlatPerEmployee,
         },
       ),
     [employees, apiMonth, axVoucher, axPostingDate],
@@ -396,8 +396,8 @@ export default function PayrollPage() {
       advances: calcInputs.advances, helb: calcInputs.helb,
       company_loan: calcInputs.company_loan, bank_loan: calcInputs.bank_loan,
       sacco: calcInputs.sacco,
-    })
-  }, [calcInputs])
+    }, rulesForMonth(apiMonth))
+  }, [calcInputs, apiMonth])
 
   function toggleRow(idx: number) {
     setExpandedRows(prev => {
@@ -456,7 +456,7 @@ export default function PayrollPage() {
           nssf_t2_override: emp.nssf_t2_override ?? undefined,
           ahl_relief_override: emp.ahl_relief_override ?? undefined,
         }
-        const computed = computePayroll(inputs)
+        const computed = computePayroll(inputs, rulesForMonth(apiMonth))
         return { ...emp, ...inputs, ...computed }
       })
     )

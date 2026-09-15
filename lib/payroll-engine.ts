@@ -19,15 +19,20 @@
  *                    relief value via `personal_relief_override`.
  * AHL Relief       : 15% of the AHL (Housing Levy) contribution, applied as
  *                    a tax credit against Gross PAYE.
- * NSSF Tier I/II   : KES 420 / KES 1,740 per month — kept FLAT, exactly as
- *                    they appear in Tony's 2024 source sheet, per instruction
- *                    to stay accurate to the original workbook rather than
- *                    recalculate against newer earnings-limit bands.
+ * NSSF Tier I/II   : 6% of earnings up to the lower limit, and 6% of earnings
+ *                    between the lower and upper limits. On the 2024 card
+ *                    (7,000 / 36,000) that is the flat KES 420 / 1,740 on
+ *                    every standard row of Tony's sheet; later cards carry
+ *                    the stepped-up limits.
  * SHIF             : 2.75% of BASIC SALARY (verified — NOT gross salary).
  * AHL (Housing)    : 1.5% of BASIC SALARY (verified — NOT gross salary).
  * Pension EE       : 5% of BASIC SALARY (verified — NOT gross salary),
  *                    capped at KES 20,000/month.
- * Pension ER       : 10% of BASIC SALARY (employer match, same basis).
+ * Pension ER       : 10% of BASIC SALARY (employer match, same basis) — and
+ *                    NIL for an employee outside the scheme. Tony's sheet
+ *                    leaves both the employee 5% and the employer 10% blank
+ *                    for the same 12 people; `pension_rate_override: 0` now
+ *                    switches both off, not just the employee side.
  *
  * Voluntary pension contributions do NOT reduce taxable pay in the source
  * sheet — verified against an employee who has a voluntary contribution
@@ -68,13 +73,13 @@
  *   1,740 everyone else uses) — pass the exact figure via
  *   `nssf_t2_override`.
  *
- * All rates/bands below live in lib/payroll-rules-config.ts — update the
- * KRA bands, NSSF, SHIF, AHL, pension, or NITA figures there, not here.
+ * All rates/bands live in lib/payroll-rules-config.ts as effective-dated
+ * cards. `computePayroll` takes the card for the pay month being run —
+ * `rulesForMonth(month)` — and has NO default, so November 2024 pay can never
+ * silently run through 2026 rules or vice versa.
  */
 
-import { KENYA_PAYROLL_RULES_2024 } from "@/lib/payroll-rules-config"
-
-const RULES = KENYA_PAYROLL_RULES_2024
+import type { KenyaPayrollRules, PayeBand } from "@/lib/payroll-rules-config"
 
 export interface PayrollInputs {
   base_salary: number
@@ -137,13 +142,13 @@ export interface PayrollResult {
 // Each band's slice is measured from (previous ceiling + 1) — see the file
 // header comment for why this isn't the more conventional previous-ceiling
 // boundary.
-function computeGrossPAYE(taxableMonthlyIncome: number): number {
+function computeGrossPAYE(taxableMonthlyIncome: number, bands: PayeBand[]): number {
   if (taxableMonthlyIncome <= 0) return 0
 
   let tax = 0
   let previousCeiling = 0
 
-  for (const band of RULES.payeBands) {
+  for (const band of bands) {
     const bandCeiling = band.upTo ?? Infinity
     const bandFloor = previousCeiling === 0 ? 0 : previousCeiling + 1
     const upperForThisBand = Math.min(taxableMonthlyIncome, bandCeiling)
@@ -159,7 +164,8 @@ function computeGrossPAYE(taxableMonthlyIncome: number): number {
 }
 
 // ── Main compute function ────────────────────────────────────────────────────
-export function computePayroll(inputs: PayrollInputs): PayrollResult {
+export function computePayroll(inputs: PayrollInputs, rules: KenyaPayrollRules): PayrollResult {
+  const RULES = rules
   const {
     base_salary, bonus_commission, fringe_benefit, transport_allowance,
     arrears, ot_other, voluntary_pension,
@@ -183,27 +189,37 @@ export function computePayroll(inputs: PayrollInputs): PayrollResult {
   //    computed against RULES.statutoryBasis ("basic" by default, matching
   //    Tony's sheet exactly; "gross" is the legally-standard definition,
   //    available as a one-line config flip once Tony approves the switch).
-  //    NSSF stays FLAT per Tony's 2024 sheet, not recalculated per employee.
+  //    NSSF tiers come from the card's earnings limits: on the 2024 card that
+  //    reproduces the flat 420 / 1,740 of Tony's sheet for everyone at or
+  //    above the upper limit; a per-employee Tier II override still wins.
   const statutory_base = RULES.statutoryBasis === "gross" ? gross_salary : base_salary
-  const nssf_t1_raw = RULES.nssfTier1Flat
-  const nssf_t2_raw = nssf_t2_override ?? RULES.nssfTier2Flat
+  const nssf_base = RULES.nssfBasis === "gross" ? gross_salary : base_salary
+  const nssf_t1_raw = RULES.nssfRate * Math.min(nssf_base, RULES.nssfLowerLimit)
+  const nssf_t2_raw = nssf_t2_override
+    ?? RULES.nssfRate * Math.max(Math.min(nssf_base, RULES.nssfUpperLimit) - RULES.nssfLowerLimit, 0)
   const shif_raw = statutory_base * RULES.shifRate
   const ahl_raw = statutory_base * RULES.ahlRate
   const pension_rate = pension_rate_override ?? RULES.pensionEmployeeRate
   const raw_pension_ee = statutory_base * pension_rate
   const defined_pension_ee_raw = Math.min(raw_pension_ee, RULES.pensionEmployeeCap)
-  const defined_pension_er_raw = statutory_base * RULES.pensionEmployerRate
+  // An employee-side rate of 0 means "not in the scheme" — Tony's sheet
+  // leaves the employer 10% blank for exactly those people too, so the
+  // company contributes nothing for them rather than 10% of basic.
+  const defined_pension_er_raw = pension_rate === 0 ? 0 : statutory_base * RULES.pensionEmployerRate
   // Contributions above the statutory cap still leave the employee's pay —
   // they're just not tax-deductible — so the excess is folded into the
   // voluntary-pension deduction bucket, not dropped. See file header.
   const pension_excess_over_cap = Math.max(raw_pension_ee - RULES.pensionEmployeeCap, 0)
   const total_voluntary_raw = voluntary_pension + pension_excess_over_cap
 
-  // 3. Taxable pay = Gross − NSSF − Defined Pension EE only.
-  //    Voluntary pension does NOT reduce taxable pay — verified against
-  //    an employee with a voluntary contribution whose taxable pay matched
-  //    exactly without subtracting it.
+  // 3. Taxable pay = Gross − NSSF − Defined Pension EE, less SHIF and AHL
+  //    only on cards where the Tax Laws (Amendment) Act 2024 has made them
+  //    deductible (not on the 2024 baseline). Voluntary pension does NOT
+  //    reduce taxable pay — verified against an employee with a voluntary
+  //    contribution whose taxable pay matched exactly without subtracting it.
   const taxable_pay_raw = gross_salary - defined_pension_ee_raw - nssf_t1_raw - nssf_t2_raw
+    - (RULES.shifDeductible ? shif_raw : 0)
+    - (RULES.ahlDeductible ? ahl_raw : 0)
 
   // 4. Gross PAYE from slabs. Confirmed-exception employees compute their
   //    band tax on (Gross − a flat amount) instead of the standard taxable
@@ -213,7 +229,7 @@ export function computePayroll(inputs: PayrollInputs): PayrollResult {
   const paye_band_base = paye_band_flat_deduction !== undefined
     ? gross_salary - paye_band_flat_deduction
     : taxable_pay_raw
-  const gross_paye_raw = computeGrossPAYE(paye_band_base)
+  const gross_paye_raw = computeGrossPAYE(paye_band_base, RULES.payeBands)
 
   // 5. Reliefs — use the employee's override if one is set (parent-company/
   //    expatriate staff on a different relief arrangement), otherwise the
@@ -324,7 +340,7 @@ const CC_NAMES: Record<string, string> = {
   "512": "Production-OH",
 }
 
-export function buildGLPosting(employees: EmployeeSummary[]): GLPostingSummary {
+export function buildGLPosting(employees: EmployeeSummary[], RULES: KenyaPayrollRules): GLPostingSummary {
   const gross_salaries = +employees.reduce((s, e) => s + e.gross_salary, 0).toFixed(2)
   const ahl_total = +employees.reduce((s, e) => s + e.ahl, 0).toFixed(2)
   const nssf_ee = +employees.reduce((s, e) => s + e.nssf_t1 + e.nssf_t2, 0).toFixed(2)

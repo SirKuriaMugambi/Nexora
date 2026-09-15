@@ -8,6 +8,8 @@ const row = (overrides: Partial<PayrollValidationRow>): PayrollValidationRow => 
   net_salary: 60000,
   bank_name: "KCB",
   bank_account_number: "1234567890",
+  bank_branch_code: "01100",
+  emp_code: "EMP001",
   email: "test@chrysal.com",
   ...overrides,
 })
@@ -15,6 +17,25 @@ const row = (overrides: Partial<PayrollValidationRow>): PayrollValidationRow => 
 describe("validatePayrollRows", () => {
   it("returns no issues for a clean employee", () => {
     expect(validatePayrollRows([row({})])).toEqual([])
+  })
+
+  it("warns when the bank routing fields the payment file needs are missing", () => {
+    const issues = validatePayrollRows([row({ bank_branch_code: null })])
+    expect(issues).toHaveLength(1)
+    expect(issues[0].severity).toBe("warning")
+    expect(issues[0].message).toMatch(/branch code \/ EMP code/)
+    expect(validatePayrollRows([row({ emp_code: "" })])).toHaveLength(1)
+  })
+
+  it("warns every holder of an EMP code shared by two employees, case-insensitively", () => {
+    const issues = validatePayrollRows([
+      row({ id: "1011", emp_code: "EMP011" }),
+      row({ id: "1012", emp_code: "emp011" }),
+      row({ id: "1013", emp_code: "EMP013" }),
+    ])
+    expect(issues.map((i) => i.employeeId)).toEqual(["1011", "1012"])
+    expect(issues[0].message).toMatch(/EMP011 is also assigned to 1012/)
+    expect(issues[1].message).toMatch(/EMP011 is also assigned to 1011/)
   })
 
   it("flags missing KRA PIN as an error", () => {

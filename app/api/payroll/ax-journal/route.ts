@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createSupabaseAdminClient } from "@/lib/supabase-server"
 import { requireRole } from "@/lib/supabase"
-import { KENYA_PAYROLL_RULES_2024 } from "@/lib/payroll-rules-config"
+import { rulesForMonth } from "@/lib/payroll-rules-config"
 import {
   axJournalToXlsx,
   axPeriodLabel,
@@ -135,7 +135,7 @@ export async function GET(request: Request) {
   const journal = buildAxPayrollJournal(month, inputs, {
     voucher,
     postingDate,
-    nitaFlatPerEmployee: KENYA_PAYROLL_RULES_2024.nitaFlatPerEmployee,
+    nitaFlatPerEmployee: rulesForMonth(month).nitaFlatPerEmployee,
   })
 
   // A journal that doesn't balance — or needs more than cents on the

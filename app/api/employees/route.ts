@@ -52,6 +52,8 @@ export async function POST(request: Request) {
     department: body.department ?? "Production",
     bank_name: body.bank_name ?? "N/A",
     bank_account_number: body.bank_account_number ?? "N/A",
+    bank_branch_code: body.bank_branch_code ?? null,
+    emp_code: body.emp_code ?? null,
     email: body.email ?? null,
     base_salary: body.base_salary ?? 0,
     bonus_commission: body.bonus_commission ?? 0,

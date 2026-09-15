@@ -81,6 +81,11 @@ export interface Employee {
   department: string       // e.g. "Finance", "Technical", "Production"
   bank_name?: string
   bank_account_number?: string
+  // Bank routing for the salary payment file, and the employee reference the
+  // file carries on every payment line — both required by the bank's layout
+  // (see lib/bank-batch-builder.ts); the batch refuses to generate without them.
+  bank_branch_code?: string | null
+  emp_code?: string | null
   email?: string | null
   // Set once the employee has a self-service portal login — see
   // app/api/employees/[id]/portal-access. Non-null = has portal access.

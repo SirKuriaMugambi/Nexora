@@ -112,7 +112,7 @@ function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, acc
   const blank: Partial<Employee> = {
     id: "", name: "", national_id: "", kra_pin: "", sha_pin: "",
     grade: "Staff", cost_centre: "511", department: "Production",
-    bank_name: "", bank_account_number: "", email: "",
+    bank_name: "", bank_account_number: "", bank_branch_code: "", emp_code: "", email: "",
     base_salary: 0, bonus_commission: 0, fringe_benefit: 0, transport_allowance: 0,
     arrears: 0, ot_other: 0, voluntary_pension: 0,
     advances: 0, helb: 0, company_loan: 0, bank_loan: 0, sacco: 0,
@@ -191,6 +191,8 @@ function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, acc
       <div className="grid grid-cols-2 gap-3">
         <Field label="Bank Name" name="bank_name" value={fieldValue("bank_name")} onChange={handle} />
         <Field label="Bank Account Number" name="bank_account_number" value={fieldValue("bank_account_number")} onChange={handle} />
+        <Field label="Bank Branch Code (bank file, e.g. 03095)" name="bank_branch_code" value={fieldValue("bank_branch_code")} onChange={handle} />
+        <Field label="EMP Code (bank file reference, e.g. EMP001)" name="emp_code" value={fieldValue("emp_code")} onChange={handle} />
         <Field label="Email (for payslip delivery)" name="email" type="email" value={fieldValue("email")} onChange={handle} />
       </div>
 
@@ -462,6 +464,11 @@ export default function EmployeesPage() {
                       {emp.bank_name && emp.bank_name !== "N/A" ? `${emp.bank_name} · ${emp.bank_account_number}` : (
                         <span className="text-amber-500">Not on file</span>
                       )}
+                      <span className={`block mt-0.5 text-[9px] ${emp.bank_branch_code && emp.emp_code ? "text-zinc-400" : "text-amber-500"}`}>
+                        {emp.bank_branch_code && emp.emp_code
+                          ? `Br ${emp.bank_branch_code} · ${emp.emp_code}`
+                          : "Branch code / EMP code missing — bank file will refuse"}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-right font-mono">{fmt(emp.base_salary)}</td>
                     <td className="px-4 py-3 text-center">

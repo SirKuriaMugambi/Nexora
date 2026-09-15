@@ -18,6 +18,8 @@ export interface PayrollValidationRow {
   net_salary: number
   bank_name?: string | null
   bank_account_number?: string | null
+  bank_branch_code?: string | null
+  emp_code?: string | null
   email?: string | null
 }
 
@@ -32,6 +34,16 @@ const isBlank = (v: string | null | undefined) => !v || v.trim() === "" || v.tri
 
 export function validatePayrollRows(rows: PayrollValidationRow[]): PayrollValidationIssue[] {
   const issues: PayrollValidationIssue[] = []
+
+  // The bank file carries the EMP code as the reference on every payment
+  // line. Two people on one code still get paid (the bank routes on account
+  // number), but the statement can no longer say who was paid what.
+  const holdersByEmpCode = new Map<string, string[]>()
+  for (const row of rows) {
+    const code = row.emp_code?.trim().toUpperCase()
+    if (!code) continue
+    holdersByEmpCode.set(code, [...(holdersByEmpCode.get(code) ?? []), row.id])
+  }
 
   for (const row of rows) {
     const push = (severity: "error" | "warning", message: string) =>
@@ -51,6 +63,14 @@ export function validatePayrollRows(rows: PayrollValidationRow[]): PayrollValida
     }
     if (isBlank(row.bank_name) || isBlank(row.bank_account_number)) {
       push("warning", "No bank details on file — this employee will be missing from the bank batch file.")
+    }
+    if (isBlank(row.bank_branch_code) || isBlank(row.emp_code)) {
+      push("warning", "No bank branch code / EMP code on file — the bank payment file cannot be generated until this is added in Employee Master.")
+    }
+    const code = row.emp_code?.trim().toUpperCase()
+    const others = code ? (holdersByEmpCode.get(code) ?? []).filter((id) => id !== row.id) : []
+    if (others.length > 0) {
+      push("warning", `EMP code ${code} is also assigned to ${others.join(", ")} — each employee needs their own bank file reference.`)
     }
     if (isBlank(row.email)) {
       push("warning", "No email on file — payslip emailing will skip this employee.")

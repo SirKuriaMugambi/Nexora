@@ -3,9 +3,9 @@ import { initialEmployees } from "@/lib/seeds"
 import { buildPayrollVarianceReport, computePayroll, type EmployeeSummary } from "@/lib/payroll-engine"
 import { createSupabaseAdminClient } from "@/lib/supabase-server"
 import { requireRole } from "@/lib/supabase"
-import { KENYA_PAYROLL_RULES_2024 as RULES } from "@/lib/payroll-rules-config"
+import { currentPayMonth, rulesForMonth, type KenyaPayrollRules } from "@/lib/payroll-rules-config"
 
-function normalizeEmployeeRow(row: Record<string, unknown>) {
+function normalizeEmployeeRow(row: Record<string, unknown>, rules: KenyaPayrollRules) {
   const input = {
     base_salary: Number(row.base_salary ?? 0),
     bonus_commission: Number(row.bonus_commission ?? 0),
@@ -26,7 +26,7 @@ function normalizeEmployeeRow(row: Record<string, unknown>) {
     ahl_relief_override: row.ahl_relief_override != null ? Number(row.ahl_relief_override) : undefined,
   }
 
-  const result = computePayroll(input)
+  const result = computePayroll(input, rules)
 
   return {
     id: String(row.id ?? ""),
@@ -40,6 +40,8 @@ function normalizeEmployeeRow(row: Record<string, unknown>) {
     // run pre-flight validation (missing bank details / email warnings).
     bank_name: row.bank_name != null ? String(row.bank_name) : null,
     bank_account_number: row.bank_account_number != null ? String(row.bank_account_number) : null,
+    bank_branch_code: row.bank_branch_code != null ? String(row.bank_branch_code) : null,
+    emp_code: row.emp_code != null ? String(row.emp_code) : null,
     email: row.email != null ? String(row.email) : null,
     base_salary: input.base_salary,
     bonus_commission: input.bonus_commission,
@@ -84,6 +86,15 @@ export async function GET(request: Request) {
 
   const supabase = createSupabaseAdminClient()
   const month = new URL(request.url).searchParams.get("month")
+  // Preview figures are computed on the card in force for the month being
+  // viewed — never a fixed year's rules. A month we hold no rules for is a
+  // caller error, not something to paper over with a different year.
+  let rules: KenyaPayrollRules
+  try {
+    rules = rulesForMonth(month ?? currentPayMonth())
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 })
+  }
 
   let run: { status: string } | null = null
   if (supabase && month) {
@@ -94,7 +105,7 @@ export async function GET(request: Request) {
   if (supabase) {
     const { data, error } = await supabase.from("employees").select("*").order("name")
     if (!error && Array.isArray(data)) {
-      return NextResponse.json({ employees: data.map((row) => normalizeEmployeeRow(row as Record<string, unknown>)), run })
+      return NextResponse.json({ employees: data.map((row) => normalizeEmployeeRow(row as Record<string, unknown>, rules)), run })
     }
   }
 
@@ -137,7 +148,13 @@ export async function POST(request: Request) {
   }
 
   const employees = body.employees ?? []
-  const month = body.month ?? new Date().toISOString().slice(0, 7)
+  const month = body.month ?? currentPayMonth()
+  let rules: KenyaPayrollRules
+  try {
+    rules = rulesForMonth(month)
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 })
+  }
 
   // Refuse to create an empty run. Previously this happily saved a Draft with
   // zero register entries (e.g. if the page posted before its employee list
@@ -174,7 +191,7 @@ export async function POST(request: Request) {
       pension_rate_override: employee.pension_rate_override,
       nssf_t2_override: employee.nssf_t2_override,
       ahl_relief_override: employee.ahl_relief_override,
-    }),
+    }, rules),
   }))
 
   // Server-side pre-flight gate — mirrors lib/payroll-validation.ts's error
@@ -294,7 +311,7 @@ export async function POST(request: Request) {
       total_deductions: result.total_deductions,
       net_pay: result.net_salary,
       employer_pension: result.defined_pension_er,
-      nita: RULES.nitaFlatPerEmployee,
+      nita: rules.nitaFlatPerEmployee,
     }))
 
     const { error: entriesError } = await supabase

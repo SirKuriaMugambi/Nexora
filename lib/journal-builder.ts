@@ -25,7 +25,7 @@
 
 import { PAYROLL_GL_ACCOUNTS, PAYROLL_LIABILITY_DIMENSION } from "@/lib/gl-accounts-config"
 import { allocateEmployeeAmount, type AxDimension, type EmployeeForAllocation } from "@/lib/cost-allocation"
-import { KENYA_PAYROLL_RULES_2024 } from "@/lib/payroll-rules-config"
+import { rulesForMonth } from "@/lib/payroll-rules-config"
 import type { PayrollInputs, PayrollResult } from "@/lib/payroll-engine"
 
 export interface JournalLine {
@@ -83,6 +83,7 @@ export function buildPayrollJournal(
   employeeInputs: PayrollJournalEmployeeInput[],
   currency = "KES",
 ): PayrollJournal {
+  const rules = rulesForMonth(month)
   // Accumulate per-cost-centre expense totals (dimensioned lines).
   const salaryByDimension = new Map<string, { dimension: AxDimension; amount: number }>()
   const employerStatutoryByDimension = new Map<string, { dimension: AxDimension; amount: number }>()
@@ -119,7 +120,7 @@ export function buildPayrollJournal(
     }
     for (const { dimension, amount } of allocateEmployeeAmount(
       employee,
-      result.defined_pension_er + KENYA_PAYROLL_RULES_2024.nitaFlatPerEmployee,
+      result.defined_pension_er + rules.nitaFlatPerEmployee,
     )) {
       addToMap(employerStatutoryByDimension, dimension, amount)
     }
@@ -131,7 +132,7 @@ export function buildPayrollJournal(
     payeTotal += result.net_paye
     statutoryPayableTotal += result.nssf_t1 + result.nssf_t2 + result.shif + result.ahl
     pensionPayableTotal += result.defined_pension_ee + result.defined_pension_er
-    nitaPayableTotal += KENYA_PAYROLL_RULES_2024.nitaFlatPerEmployee
+    nitaPayableTotal += rules.nitaFlatPerEmployee
     otherDeductionsTotal += otherDeductionsFromResult(result)
   }
 

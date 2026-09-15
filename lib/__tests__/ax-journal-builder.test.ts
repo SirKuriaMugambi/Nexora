@@ -1,4 +1,5 @@
 import { computePayroll, type PayrollInputs } from "@/lib/payroll-engine"
+import { KENYA_PAYROLL_RULES_2024 } from "@/lib/payroll-rules-config"
 import { AX_JOURNAL_ACCOUNTS } from "@/lib/gl-accounts-config"
 import {
   axJournalToSheet,
@@ -34,7 +35,7 @@ function baseInputs(overrides: Partial<PayrollInputs> = {}): PayrollInputs {
 
 /** Runs the real engine so every entry satisfies the deduction identity by construction. */
 function entryFrom(inputs: PayrollInputs): AxJournalEntry {
-  const r = computePayroll(inputs)
+  const r = computePayroll(inputs, KENYA_PAYROLL_RULES_2024)
   return {
     basic_salary: inputs.base_salary,
     bonus_commission: inputs.bonus_commission,
