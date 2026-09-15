@@ -19,6 +19,7 @@ import { buildAxPayrollJournal } from "@/lib/ax-journal-builder"
 import { rulesForMonth } from "@/lib/payroll-rules-config"
 import { validatePayrollRows } from "@/lib/payroll-validation"
 import { PreflightPanel } from "@/components/preflight-panel"
+import { FilterChips } from "@/components/filter-chips"
 import ModuleLock from "@/components/module-lock"
 import type { Employee } from "@/lib/seeds"
 import type { ImportPreviewResult } from "@/app/api/payroll/import/route"
@@ -41,6 +42,13 @@ function fmtD(n: number) {
  *    "nothing happened", so the button got clicked again, and every
  *    click that did survive queued another Save-As prompt.
  */
+// Why the workbook parser dropped a row — its codes, in the finance manager's words.
+const SKIP_REASON_LABELS: Record<string, string> = {
+  no_staff_no_or_name: "no staff number or name in the row",
+  currency_value_not_a_name: "name column held a currency value",
+  junk_row: "header, blank or junk row",
+}
+
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
@@ -274,6 +282,9 @@ export default function PayrollPage() {
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [importPreview, setImportPreview] = useState<ImportPreviewResult | null>(null)
+  // Which part of the import preview is listed: matched rows by default;
+  // unmatched and skipped were previously only counted, never shown.
+  const [importView, setImportView] = useState<"matched" | "unmatched" | "skipped" | null>(null)
 
   // Re-runs whenever the selected pay period changes, so the workflow status
   // (Draft/Submitted/Approved/Posted) always reflects the month on screen.
@@ -421,6 +432,7 @@ export default function PayrollPage() {
         throw new Error(payload.error ?? "Failed to parse the uploaded workbook")
       }
       setImportPreview(payload as ImportPreviewResult)
+      setImportView(null)   // a fresh preview starts unfiltered
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Failed to import workbook")
     } finally {
@@ -993,23 +1005,44 @@ export default function PayrollPage() {
                 <h3 className="text-xs font-mono uppercase tracking-wider font-bold">Import Preview</h3>
                 <button onClick={() => setImportPreview(null)} className="text-zinc-400 hover:text-zinc-600"><X className="h-4 w-4" /></button>
               </div>
-              <div className="grid grid-cols-3 gap-3 font-mono text-[10px]">
-                <div className="text-emerald-600">{importPreview.matched.length} matched</div>
-                <div className="text-amber-500">{importPreview.unmatched.length} unmatched (not in Employee Master)</div>
-                <div className="text-zinc-400">{importPreview.skipped.length} rows skipped</div>
-              </div>
+              <FilterChips
+                options={[
+                  { key: "matched", label: "matched", count: importPreview.matched.length },
+                  { key: "unmatched", label: "unmatched (not in Employee Master)", count: importPreview.unmatched.length },
+                  { key: "skipped", label: "rows skipped", count: importPreview.skipped.length },
+                ]}
+                active={importView}
+                onChange={setImportView}
+                total={importPreview.matched.length + importPreview.unmatched.length + importPreview.skipped.length}
+                allLabel="Rows read"
+                tone="neutral"
+              />
               {importPreview.unmatched.length > 0 && (
                 <p className="text-[9px] font-mono text-amber-500">
                   Unmatched staff numbers won&apos;t be applied — add them via Manage Employees first, then re-import.
                 </p>
               )}
               <div className="max-h-40 overflow-y-auto border-t dark:border-zinc-900 pt-2 text-[10px] font-mono space-y-1">
-                {importPreview.matched.map((m) => (
-                  <div key={m.parsed.id} className="flex justify-between text-zinc-500">
-                    <span>{m.parsed.id} · {m.existingName}</span>
+                {(importView === null || importView === "matched") && importPreview.matched.map((m) => (
+                  <div key={`m-${m.parsed.id}`} className="flex justify-between text-zinc-500">
+                    <span><span className="text-emerald-600">✓</span> {m.parsed.id} · {m.existingName}</span>
                     <span>Basic {fmt(m.parsed.baseSalary)}</span>
                   </div>
                 ))}
+                {(importView === null || importView === "unmatched") && importPreview.unmatched.map((u) => (
+                  <div key={`u-${u.parsed.id}`} className="flex justify-between text-amber-600 dark:text-amber-400">
+                    <span>{u.parsed.id} · {u.parsed.name || "(no name)"} — not in Employee Master</span>
+                    <span>Basic {fmt(u.parsed.baseSalary)}</span>
+                  </div>
+                ))}
+                {(importView === null || importView === "skipped") && importPreview.skipped.map((sk) => (
+                  <div key={`s-${sk.row}`} className="flex justify-between text-zinc-400">
+                    <span>Row {sk.row}</span>
+                    <span>{SKIP_REASON_LABELS[sk.reason] ?? sk.reason}</span>
+                  </div>
+                ))}
+                {importView === "unmatched" && importPreview.unmatched.length === 0 && <div className="text-zinc-400">No unmatched rows.</div>}
+                {importView === "skipped" && importPreview.skipped.length === 0 && <div className="text-zinc-400">No rows were skipped.</div>}
               </div>
               <button
                 onClick={applyImportPreview}

@@ -49,3 +49,41 @@ describe("PreflightPanel", () => {
     expect(html).toContain("2 more not shown")   // 8 previewed for errors
   })
 })
+
+describe("PreflightPanel cause filter", () => {
+  const issues = [
+    dup("1011", "1012"), dup("1012", "1011"),
+    ...Array.from({ length: 46 }, (_, i) => noEmail(String(1000 + i))),
+  ]
+
+  it("renders the cause chips as pressable buttons with All selected by default", () => {
+    const html = renderToStaticMarkup(<PreflightPanel issues={issues} severity="warning" />)
+    expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>All \(48\)<\/button>/)
+    expect(html).toMatch(/<button[^>]*aria-pressed="false"[^>]*>46 × no email<\/button>/)
+    expect(html).toMatch(/<button[^>]*aria-pressed="false"[^>]*>2 × EMP code shared with another employee<\/button>/)
+  })
+
+  it("with a cause selected, lists every employee for that cause and nothing else", () => {
+    const html = renderToStaticMarkup(
+      <PreflightPanel issues={issues} severity="warning" defaultFilter="duplicate_emp_code" />,
+    )
+    expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>2 × EMP code shared with another employee<\/button>/)
+    expect(html).toContain("Showing 2 of 48 — EMP code shared with another employee")
+    expect(html).toContain("is also assigned to 1012")
+    expect(html).toContain("is also assigned to 1011")
+    expect(html).not.toContain("No email on file")
+    // the preview/show-all controls belong to the unfiltered view only
+    expect(html).not.toContain("Show all")
+    expect(html).not.toContain("more not shown")
+  })
+
+  it("a selected cause shows its full list even when it is long", () => {
+    const html = renderToStaticMarkup(
+      <PreflightPanel issues={issues} severity="warning" defaultFilter="missing_email" />,
+    )
+    expect(html).toContain("Showing 46 of 48 — no email")
+    expect(html).toContain("Employee 1000")
+    expect(html).toContain("Employee 1045")
+    expect(html).not.toContain("is also assigned")
+  })
+})

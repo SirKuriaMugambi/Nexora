@@ -6,6 +6,16 @@ import { useTheme } from "@/components/theme-provider"
 import { IdCard, Plus, X, Pencil, Trash2, ShieldAlert, Lock, KeyRound } from "lucide-react"
 import type { Employee } from "@/lib/seeds"
 import ModuleLock from "@/components/module-lock"
+import { FilterChips } from "@/components/filter-chips"
+import { issueCauseOptions } from "@/components/preflight-panel"
+import { validatePayrollRows, type PayrollValidationCode } from "@/lib/payroll-validation"
+
+// What the table can be narrowed to: any pre-flight cause, or the statutory-exception flag.
+type EmployeeFilter = PayrollValidationCode | "statutory_exception"
+
+// An employee carrying any per-employee statutory override (see lib/payroll-engine.ts header).
+const hasException = (e: Employee) =>
+  Boolean(e.personal_relief_override || e.paye_band_flat_deduction != null || e.pension_rate_override != null || e.nssf_t2_override || e.ahl_relief_override != null)
 
 const NUMERIC_FIELDS = [
   "base_salary", "bonus_commission", "fringe_benefit", "transport_allowance",
@@ -253,6 +263,7 @@ export default function EmployeesPage() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [filter, setFilter] = useState<EmployeeFilter | null>(null)
 
   // Reload after a CRUD mutation (create/update/delete) — kept out of the
   // initial-mount effect below since it's called from multiple places.
@@ -343,9 +354,38 @@ export default function EmployeesPage() {
     await refreshEmployees()
   }
 
-  const hasException = (e: Employee) =>
-    Boolean(e.personal_relief_override || e.paye_band_flat_deduction != null || e.pension_rate_override != null || e.nssf_t2_override || e.ahl_relief_override != null)
   const exceptionCount = employees.filter(hasException).length
+
+  // The same pre-flight checks the Payroll page shows, run here so the
+  // finance manager can press "46 × no email" on that page, come here, and
+  // land on exactly those 46 rows. Net pay is not computed on this page, so
+  // the negative-net check can never fire here — every other cause can.
+  const issues = useMemo(
+    () => validatePayrollRows(employees.map((e) => ({
+      id: e.id, name: e.name, kra_pin: e.kra_pin, base_salary: e.base_salary, net_salary: 0,
+      bank_name: e.bank_name, bank_account_number: e.bank_account_number,
+      bank_branch_code: e.bank_branch_code, emp_code: e.emp_code, email: e.email,
+    }))),
+    [employees],
+  )
+  const filterOptions = useMemo(() => {
+    const opts: Array<{ key: EmployeeFilter; label: string; count: number }> = issueCauseOptions(issues)
+    if (exceptionCount > 0) opts.push({ key: "statutory_exception", label: "statutory exceptions", count: exceptionCount })
+    return opts
+  }, [issues, exceptionCount])
+  // Reason shown under the name while a cause filter is active.
+  const reasonFor = useMemo(() => {
+    const map = new Map<string, string>()
+    if (filter && filter !== "statutory_exception") {
+      for (const i of issues) if (i.code === filter && !map.has(i.employeeId)) map.set(i.employeeId, i.message)
+    }
+    return map
+  }, [issues, filter])
+  const visibleEmployees = useMemo(() => {
+    if (!filter) return employees
+    if (filter === "statutory_exception") return employees.filter(hasException)
+    return employees.filter((e) => reasonFor.has(e.id))
+  }, [employees, filter, reasonFor])
 
   // Employee master holds PII/bank details — finance_manager only. Real
   // enforcement is server-side (every /api/employees* route checks this
@@ -427,6 +467,16 @@ export default function EmployeesPage() {
           <IdCard className="h-4 w-4 text-zinc-400" />
           <h3 className="text-xs font-mono uppercase tracking-wider font-bold">Employee Master ({employees.length})</h3>
         </div>
+        {!loading && filterOptions.length > 0 && (
+          <div className="px-5 py-2.5 border-b dark:border-zinc-900 space-y-1.5">
+            <FilterChips options={filterOptions} active={filter} onChange={setFilter} total={employees.length} tone="amber" />
+            {filter && (
+              <p className="font-mono text-[10px] text-amber-600 dark:text-amber-400">
+                Showing {visibleEmployees.length} of {employees.length} — {filterOptions.find((o) => o.key === filter)?.label}
+              </p>
+            )}
+          </div>
+        )}
 
         {loading && (
           <div className="p-5 text-[10px] font-mono uppercase text-zinc-400">Loading employee master from Supabase…</div>
@@ -448,11 +498,14 @@ export default function EmployeesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900 text-[11px]">
-                {employees.map((emp) => (
+                {visibleEmployees.map((emp) => (
                   <tr key={emp.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/20">
                     <td className="px-4 py-3">
                       <p className="font-semibold text-zinc-800 dark:text-zinc-200">{emp.name}</p>
                       <span className="text-[9px] text-zinc-400 font-mono">{emp.id}</span>
+                      {reasonFor.has(emp.id) && (
+                        <span className="block mt-0.5 text-[9px] text-amber-600 dark:text-amber-400">{reasonFor.get(emp.id)}</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 font-mono text-zinc-500">{emp.kra_pin}</td>
                     <td className="px-4 py-3 font-mono text-zinc-500">{emp.grade}</td>
