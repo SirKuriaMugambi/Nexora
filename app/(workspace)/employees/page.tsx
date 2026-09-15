@@ -8,7 +8,7 @@ import type { Employee } from "@/lib/seeds"
 import ModuleLock from "@/components/module-lock"
 import { FilterChips } from "@/components/filter-chips"
 import { issueCauseOptions } from "@/components/preflight-panel"
-import { validatePayrollRows, type PayrollValidationCode } from "@/lib/payroll-validation"
+import { PAYROLL_VALIDATION_FIX_FIELD, validatePayrollRows, type PayrollValidationCode } from "@/lib/payroll-validation"
 import { EXCEPTION_KINDS, exceptionDetails, hasException, type ExceptionKind } from "@/lib/employee-exceptions"
 import { CC_NAMES, departmentForCostCentre } from "@/lib/payroll-engine"
 
@@ -58,6 +58,8 @@ interface EmployeeFormProps {
   cardRadius: string
   buttonRadius: string
   accentBg: string
+  /** Field to scroll to and focus once the form is on screen — the thing that needs fixing. */
+  focusField?: string
 }
 
 // Portal Access: turns on an employee's self-service payslip portal. There's
@@ -117,7 +119,24 @@ function PortalAccessSection({ employee, buttonRadius }: { employee: Employee; b
   )
 }
 
-function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, accentBg }: EmployeeFormProps) {
+// Where the pre-flight panel and the import preview send people: an employee
+// to open at a field, or a new employee to add. Read once from the URL on the
+// client; the server render sees nothing, and nothing on screen depends on it
+// until the employee list has loaded, so there is no hydration mismatch.
+interface DeepLink { edit?: string; field?: string; add?: Partial<Employee> }
+function readDeepLink(): DeepLink | null {
+  if (typeof window === "undefined") return null
+  const q = new URLSearchParams(window.location.search)
+  const edit = q.get("edit"), add = q.get("add")
+  if (edit) return { edit, field: q.get("field") ?? undefined }
+  if (add) {
+    const basic = Number(q.get("basic"))
+    return { add: { id: add, name: q.get("name") ?? "", base_salary: Number.isFinite(basic) && basic > 0 ? basic : 0 } }
+  }
+  return null
+}
+
+function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, accentBg, focusField }: EmployeeFormProps) {
   const blank: Partial<Employee> = {
     id: "", name: "", national_id: "", kra_pin: "", sha_pin: "",
     grade: "Staff", cost_centre: "511", department: CC_NAMES["511"],
@@ -130,6 +149,18 @@ function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, acc
   }
   const [form, setForm] = useState<Partial<Employee>>(initial ?? blank)
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!focusField) return
+    const el = document.querySelector<HTMLElement>(`[name="${focusField}"]`)
+    if (!el) return
+    el.scrollIntoView({ block: "center", behavior: "smooth" })
+    el.focus()
+    // A brief ring so the eye lands on the right box, then back to normal.
+    el.classList.add("ring-2", "ring-amber-500")
+    const t = setTimeout(() => el.classList.remove("ring-2", "ring-amber-500"), 2500)
+    return () => clearTimeout(t)
+  }, [focusField])
 
   function handle(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     const { name, value, type } = e.target
@@ -264,8 +295,9 @@ export default function EmployeesPage() {
 
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [editId, setEditId] = useState<string | null>(null)
+  const [showAddForm, setShowAddForm] = useState(() => Boolean(readDeepLink()?.add))
+  const [deepLink, setDeepLink] = useState<DeepLink | null>(readDeepLink)
+  const [editId, setEditId] = useState<string | null>(() => readDeepLink()?.edit ?? null)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<EmployeeFilter | null>(null)
 
@@ -307,6 +339,17 @@ export default function EmployeesPage() {
   }, [])
 
   const editing = useMemo(() => employees.find((e) => e.id === editId), [employees, editId])
+  useEffect(() => {
+    if (employees.length > 0 && window.location.search) window.history.replaceState(null, "", window.location.pathname)
+  }, [employees.length])
+
+  // Open an employee at the field that fixes one of their issues.
+  function openAtField(id: string, field: string) {
+    setShowAddForm(false)
+    setEditId(id)
+    setDeepLink({ edit: id, field })
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
 
   async function handleCreate(form: Partial<Employee>) {
     const response = await fetch("/api/employees", {
@@ -384,17 +427,23 @@ export default function EmployeesPage() {
   // Reason shown under the name while a filter is active: the pre-flight
   // message for a cause, or the exception(s) spelled out with their values.
   const reasonFor = useMemo(() => {
-    const map = new Map<string, string>()
+    const map = new Map<string, { message: string; field: string }>()
     if (!filter) return map
     if (filter === "statutory_exception" || isExceptionKind(filter)) {
       const only = filter === "statutory_exception" ? undefined : filter
       for (const e of employees) {
         const details = exceptionDetails(e, only)
-        if (details.length > 0) map.set(e.id, details.join(" · "))
+        if (details.length === 0) continue
+        const field = only ?? EXCEPTION_KINDS.find((k) => k.isSet(e))?.key ?? "pension_rate_override"
+        map.set(e.id, { message: details.join(" · "), field })
       }
       return map
     }
-    for (const i of issues) if (i.code === filter && !map.has(i.employeeId)) map.set(i.employeeId, i.message)
+    for (const i of issues) {
+      if (i.code === filter && !map.has(i.employeeId)) {
+        map.set(i.employeeId, { message: i.message, field: i.field ?? PAYROLL_VALIDATION_FIX_FIELD[i.code] })
+      }
+    }
     return map
   }, [issues, employees, filter])
   const visibleEmployees = useMemo(
@@ -458,6 +507,8 @@ export default function EmployeesPage() {
 
       {showAddForm && (
         <EmployeeForm
+          initial={deepLink?.add ? ({ ...deepLink.add } as Employee) : undefined}
+          focusField={deepLink?.add ? "kra_pin" : undefined}
           onSave={handleCreate}
           onCancel={() => setShowAddForm(false)}
           cardRadius={cardRadius}
@@ -468,7 +519,9 @@ export default function EmployeesPage() {
 
       {editing && (
         <EmployeeForm
+          key={editing.id}
           initial={editing}
+          focusField={deepLink?.edit === editing.id ? deepLink.field : undefined}
           onSave={handleUpdate}
           onCancel={() => setEditId(null)}
           cardRadius={cardRadius}
@@ -519,7 +572,14 @@ export default function EmployeesPage() {
                       <p className="font-semibold text-zinc-800 dark:text-zinc-200">{emp.name}</p>
                       <span className="text-[9px] text-zinc-400 font-mono">{emp.id}</span>
                       {reasonFor.has(emp.id) && (
-                        <span className="block mt-0.5 text-[9px] text-amber-600 dark:text-amber-400">{reasonFor.get(emp.id)}</span>
+                        <button
+                          type="button"
+                          onClick={() => openAtField(emp.id, reasonFor.get(emp.id)!.field)}
+                          title="Open this employee at the field to fix"
+                          className="block mt-0.5 text-left text-[9px] text-amber-600 dark:text-amber-400 underline underline-offset-2 hover:opacity-80"
+                        >
+                          {reasonFor.get(emp.id)!.message} — Fix →
+                        </button>
                       )}
                     </td>
                     <td className="px-4 py-3 font-mono text-zinc-500">{emp.kra_pin}</td>

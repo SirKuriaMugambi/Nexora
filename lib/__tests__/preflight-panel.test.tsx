@@ -87,3 +87,14 @@ describe("PreflightPanel cause filter", () => {
     expect(html).not.toContain("is also assigned")
   })
 })
+
+describe("PreflightPanel fix links", () => {
+  it("every row links to Employee Master with the employee and the field to fix", () => {
+    const html = renderToStaticMarkup(
+      <PreflightPanel issues={[dup("1011", "1012"), noEmail("1000")]} severity="warning" />,
+    )
+    expect(html).toContain('href="/employees?edit=1011&amp;field=emp_code"')
+    expect(html).toContain('href="/employees?edit=1000&amp;field=email"')
+    expect((html.match(/Fix →/g) ?? []).length).toBe(2)
+  })
+})

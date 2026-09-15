@@ -1,4 +1,10 @@
-import { validatePayrollRows, type PayrollValidationRow } from "@/lib/payroll-validation"
+import {
+  PAYROLL_VALIDATION_FIX_FIELD,
+  fixLinkFor,
+  validatePayrollRows,
+  type PayrollValidationCode,
+  type PayrollValidationRow,
+} from "@/lib/payroll-validation"
 
 const row = (overrides: Partial<PayrollValidationRow>): PayrollValidationRow => ({
   id: "1000",
@@ -74,5 +80,33 @@ describe("validatePayrollRows", () => {
     expect(issues[0].severity).toBe("error")
     expect(issues[0].employeeId).toBe("1001")
     expect(issues[issues.length - 1].severity).toBe("warning")
+  })
+})
+
+describe("fixLinkFor — every cause opens Employee Master at the field that fixes it", () => {
+  const codes: PayrollValidationCode[] = [
+    "missing_kra_pin", "zero_basic", "negative_net", "missing_bank",
+    "missing_bank_routing", "duplicate_emp_code", "missing_email",
+  ]
+  it("has a target field for every cause", () => {
+    for (const code of codes) {
+      expect(PAYROLL_VALIDATION_FIX_FIELD[code]).toBeTruthy()
+      expect(fixLinkFor({ employeeId: "1000", code })).toBe(`/employees?edit=1000&field=${PAYROLL_VALIDATION_FIX_FIELD[code]}`)
+    }
+  })
+  it("points at the specific blank field when a cause covers two", () => {
+    const [noAcct] = validatePayrollRows([row({ bank_account_number: "" })])
+    expect(fixLinkFor(noAcct)).toBe("/employees?edit=1000&field=bank_account_number")
+    const [noBank] = validatePayrollRows([row({ bank_name: "N/A" })])
+    expect(fixLinkFor(noBank)).toBe("/employees?edit=1000&field=bank_name")
+    const [noBranch] = validatePayrollRows([row({ bank_branch_code: "" })])
+    expect(fixLinkFor(noBranch)).toBe("/employees?edit=1000&field=bank_branch_code")
+    const [noCode] = validatePayrollRows([row({ emp_code: null })])
+    expect(fixLinkFor(noCode)).toBe("/employees?edit=1000&field=emp_code")
+  })
+  it("sends a duplicate EMP code to the EMP code box, and a missing email to the email box", () => {
+    const issues = validatePayrollRows([row({ id: "1011", emp_code: "EMP011" }), row({ id: "1012", emp_code: "EMP011", email: "" })])
+    expect(fixLinkFor(issues.find((i) => i.employeeId === "1011")!)).toBe("/employees?edit=1011&field=emp_code")
+    expect(fixLinkFor(issues.find((i) => i.employeeId === "1012" && i.code === "missing_email")!)).toBe("/employees?edit=1012&field=email")
   })
 })

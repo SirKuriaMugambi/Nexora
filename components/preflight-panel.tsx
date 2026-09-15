@@ -1,8 +1,10 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
 import {
   PAYROLL_VALIDATION_CAUSE_LABELS,
+  fixLinkFor,
   type PayrollValidationCode,
   type PayrollValidationIssue,
 } from "@/lib/payroll-validation"
@@ -76,7 +78,14 @@ export function PreflightPanel({
       <div className={showAll ? "max-h-80 overflow-y-auto pr-1 space-y-1" : "space-y-1"}>
         {shown.map((issue, i) => (
           <p key={`${issue.employeeId}-${issue.code}-${i}`} className={tone.row}>
-            <span className="font-mono font-bold">{issue.employeeId}</span> ({issue.name}): {issue.message}
+            <span className="font-mono font-bold">{issue.employeeId}</span> ({issue.name}): {issue.message}{" "}
+            <Link
+              href={fixLinkFor(issue)}
+              className={`font-mono text-[10px] uppercase tracking-wider underline underline-offset-2 whitespace-nowrap hover:opacity-80 ${tone.link}`}
+              title="Opens this employee in Employee Master with the field to fix selected"
+            >
+              Fix →
+            </Link>
           </p>
         ))}
       </div>

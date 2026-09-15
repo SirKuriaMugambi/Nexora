@@ -44,12 +44,34 @@ export const PAYROLL_VALIDATION_CAUSE_LABELS: Record<PayrollValidationCode, stri
   missing_email: "no email",
 }
 
+/** The Employee Master field to open for each cause. */
+export const PAYROLL_VALIDATION_FIX_FIELD: Record<PayrollValidationCode, string> = {
+  missing_kra_pin: "kra_pin",
+  zero_basic: "base_salary",
+  negative_net: "advances",
+  missing_bank: "bank_name",
+  missing_bank_routing: "bank_branch_code",
+  duplicate_emp_code: "emp_code",
+  missing_email: "email",
+}
+
 export interface PayrollValidationIssue {
   employeeId: string
   name: string
   severity: "error" | "warning"
   code: PayrollValidationCode
   message: string
+  /** The exact field to open, when the cause covers more than one (e.g. branch code vs EMP code). */
+  field?: string
+}
+
+/**
+ * Where to send someone to fix an issue: Employee Master, with that employee's
+ * form open and the offending field focused. The page reads these params.
+ */
+export function fixLinkFor(issue: Pick<PayrollValidationIssue, "employeeId" | "code" | "field">): string {
+  const field = issue.field ?? PAYROLL_VALIDATION_FIX_FIELD[issue.code]
+  return `/employees?edit=${encodeURIComponent(issue.employeeId)}&field=${encodeURIComponent(field)}`
 }
 
 const isBlank = (v: string | null | undefined) => !v || v.trim() === "" || v.trim().toUpperCase() === "N/A"
@@ -68,8 +90,8 @@ export function validatePayrollRows(rows: PayrollValidationRow[]): PayrollValida
   }
 
   for (const row of rows) {
-    const push = (severity: "error" | "warning", code: PayrollValidationCode, message: string) =>
-      issues.push({ employeeId: row.id, name: row.name, severity, code, message })
+    const push = (severity: "error" | "warning", code: PayrollValidationCode, message: string, field?: string) =>
+      issues.push({ employeeId: row.id, name: row.name, severity, code, message, ...(field ? { field } : {}) })
 
     if (isBlank(row.kra_pin)) {
       push("error", "missing_kra_pin", "Missing KRA PIN — statutory filings (iTax, P9) will be invalid.")
@@ -85,10 +107,12 @@ export function validatePayrollRows(rows: PayrollValidationRow[]): PayrollValida
       )
     }
     if (isBlank(row.bank_name) || isBlank(row.bank_account_number)) {
-      push("warning", "missing_bank", "No bank details on file — this employee will be missing from the bank batch file.")
+      push("warning", "missing_bank", "No bank details on file — this employee will be missing from the bank batch file.",
+        isBlank(row.bank_name) ? "bank_name" : "bank_account_number")
     }
     if (isBlank(row.bank_branch_code) || isBlank(row.emp_code)) {
-      push("warning", "missing_bank_routing", "No bank branch code / EMP code on file — the bank payment file cannot be generated until this is added in Employee Master.")
+      push("warning", "missing_bank_routing", "No bank branch code / EMP code on file — the bank payment file cannot be generated until this is added in Employee Master.",
+        isBlank(row.bank_branch_code) ? "bank_branch_code" : "emp_code")
     }
     const code = row.emp_code?.trim().toUpperCase()
     const others = code ? (holdersByEmpCode.get(code) ?? []).filter((id) => id !== row.id) : []

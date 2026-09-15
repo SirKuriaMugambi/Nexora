@@ -1030,9 +1030,18 @@ export default function PayrollPage() {
                   </div>
                 ))}
                 {(importView === null || importView === "unmatched") && importPreview.unmatched.map((u) => (
-                  <div key={`u-${u.parsed.id}`} className="flex justify-between text-amber-600 dark:text-amber-400">
+                  <div key={`u-${u.parsed.id}`} className="flex justify-between gap-3 text-amber-600 dark:text-amber-400">
                     <span>{u.parsed.id} · {u.parsed.name || "(no name)"} — not in Employee Master</span>
-                    <span>Basic {fmt(u.parsed.baseSalary)}</span>
+                    <span className="whitespace-nowrap">
+                      Basic {fmt(u.parsed.baseSalary)}{" "}
+                      <Link
+                        href={`/employees?add=${encodeURIComponent(u.parsed.id)}&name=${encodeURIComponent(u.parsed.name ?? "")}&basic=${u.parsed.baseSalary}`}
+                        className="uppercase tracking-wider underline underline-offset-2 hover:opacity-80"
+                        title="Opens Employee Master with the Add form pre-filled from this row"
+                      >
+                        Add →
+                      </Link>
+                    </span>
                   </div>
                 ))}
                 {(importView === null || importView === "skipped") && importPreview.skipped.map((sk) => (
