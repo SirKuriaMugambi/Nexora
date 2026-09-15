@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createSupabaseAdminClient } from "@/lib/supabase-server"
 import { requireRole } from "@/lib/supabase"
 import type { Employee } from "@/lib/seeds"
+import { departmentForCostCentre } from "@/lib/payroll-engine"
 
 // Employee PII/salary data — finance_manager only. These routes use the
 // service-role admin client below (bypasses RLS), so this check is the
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
     sha_pin: body.sha_pin ?? null,
     grade: body.grade ?? "Staff",
     cost_centre: body.cost_centre ?? "511",
-    department: body.department ?? "Production",
+    department: body.department ?? departmentForCostCentre(body.cost_centre ?? "511", body.cost_centre_allocation),
     bank_name: body.bank_name ?? "N/A",
     bank_account_number: body.bank_account_number ?? "N/A",
     bank_branch_code: body.bank_branch_code ?? null,

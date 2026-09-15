@@ -1,4 +1,4 @@
-import { computePayroll, buildGLPosting, buildCostCentreBreakdown } from "@/lib/payroll-engine"
+import { computePayroll, buildGLPosting, buildCostCentreBreakdown, departmentForCostCentre } from "@/lib/payroll-engine"
 import {
   KENYA_PAYROLL_RULES_2024,
   KENYA_PAYROLL_RULES_2025,
@@ -438,5 +438,24 @@ describe("computePayroll on later rule cards", () => {
     const partial = computePayroll(basicOnly(80000, { pension_rate_override: 0.03 }), KENYA_PAYROLL_RULES_2024)
     expect(partial.defined_pension_ee).toBeCloseTo(2400, 2)
     expect(partial.defined_pension_er).toBeCloseTo(8000, 2)
+  })
+})
+
+describe("departmentForCostCentre", () => {
+  it("names the department from the cost centre", () => {
+    expect(departmentForCostCentre("121")).toBe("Finance")
+    expect(departmentForCostCentre("204")).toBe("Technical (TC)")
+    expect(departmentForCostCentre("205")).toBe("OAT")
+    expect(departmentForCostCentre("206")).toBe("Technical Assistants (TA)")
+    expect(departmentForCostCentre("511")).toBe("Production")
+    expect(departmentForCostCentre("512")).toBe("Production-OH")
+  })
+  it("follows a single-centre allocation, and calls a genuine split the General Manager", () => {
+    expect(departmentForCostCentre("511", { "204": 1 })).toBe("Technical (TC)")
+    expect(departmentForCostCentre("121", { "121": 0.5, "512": 0.5 })).toBe("General Manager")
+    expect(departmentForCostCentre("121", { "121": 1, "512": 0 })).toBe("Finance")
+  })
+  it("falls back to the code itself for an unknown centre rather than inventing a name", () => {
+    expect(departmentForCostCentre("999")).toBe("999")
   })
 })

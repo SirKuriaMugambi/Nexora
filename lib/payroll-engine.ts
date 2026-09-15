@@ -331,13 +331,28 @@ export type EmployeeSummary = {
   fringe_benefit: number;
 }
 
-const CC_NAMES: Record<string, string> = {
+/**
+ * Chrysal's cost centres and their department names. The department an
+ * employee is booked to follows their cost centre — see departmentForCostCentre.
+ */
+export const CC_NAMES: Record<string, string> = {
   "121": "Finance",
   "204": "Technical (TC)",
   "205": "OAT",
   "206": "Technical Assistants (TA)",
   "511": "Production",
   "512": "Production-OH",
+}
+
+/**
+ * The department to record for an employee on a cost centre. The one split
+ * employee (the GM, across Finance and Production-OH) is a department of
+ * his own rather than either half.
+ */
+export function departmentForCostCentre(costCentre: string, allocation?: Record<string, number> | null): string {
+  const centres = allocation ? Object.keys(allocation).filter((cc) => (allocation[cc] ?? 0) > 0) : []
+  if (centres.length > 1) return "General Manager"
+  return CC_NAMES[centres[0] ?? costCentre] ?? costCentre
 }
 
 export function buildGLPosting(employees: EmployeeSummary[], RULES: KenyaPayrollRules): GLPostingSummary {

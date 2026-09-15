@@ -10,6 +10,7 @@ import { FilterChips } from "@/components/filter-chips"
 import { issueCauseOptions } from "@/components/preflight-panel"
 import { validatePayrollRows, type PayrollValidationCode } from "@/lib/payroll-validation"
 import { EXCEPTION_KINDS, exceptionDetails, hasException, type ExceptionKind } from "@/lib/employee-exceptions"
+import { CC_NAMES, departmentForCostCentre } from "@/lib/payroll-engine"
 
 // What the table can be narrowed to: a pre-flight cause, any exception, or one kind of exception.
 type EmployeeFilter = PayrollValidationCode | "statutory_exception" | ExceptionKind
@@ -119,7 +120,7 @@ function PortalAccessSection({ employee, buttonRadius }: { employee: Employee; b
 function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, accentBg }: EmployeeFormProps) {
   const blank: Partial<Employee> = {
     id: "", name: "", national_id: "", kra_pin: "", sha_pin: "",
-    grade: "Staff", cost_centre: "511", department: "Production",
+    grade: "Staff", cost_centre: "511", department: CC_NAMES["511"],
     bank_name: "", bank_account_number: "", bank_branch_code: "", emp_code: "", email: "",
     base_salary: 0, bonus_commission: 0, fringe_benefit: 0, transport_allowance: 0,
     arrears: 0, ot_other: 0, voluntary_pension: 0,
@@ -135,6 +136,12 @@ function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, acc
     if (type === "checkbox") {
       const checked = (e.target as HTMLInputElement).checked
       setForm((f) => ({ ...f, [name]: checked }))
+      return
+    }
+    if (name === "cost_centre") {
+      // Department follows the cost centre — the two drifted apart once and
+      // every payslip and journal line carried the wrong department.
+      setForm((f) => ({ ...f, cost_centre: value, department: departmentForCostCentre(value, f.cost_centre_allocation) }))
       return
     }
     setForm((f) => ({ ...f, [name]: NUMERIC_FIELDS.includes(name) ? (value === "" ? null : parseFloat(value) || 0) : value }))
@@ -186,11 +193,10 @@ function EmployeeForm({ initial, onSave, onCancel, cardRadius, buttonRadius, acc
           <label className="text-[9px] font-mono uppercase text-zinc-400">Department</label>
           <select name="department" value={form.department ?? "Production"} onChange={handle}
             className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-2 py-1.5 text-[11px] font-mono focus:outline-none rounded">
-            <option>Finance</option>
-            <option>Technical</option>
-            <option>General Manager</option>
-            <option>Production</option>
-            <option>Production-OH</option>
+            {Object.entries(CC_NAMES).map(([cc, name]) => (
+              <option key={cc} value={name}>{name}</option>
+            ))}
+            <option value="General Manager">General Manager</option>
           </select>
         </div>
       </div>
