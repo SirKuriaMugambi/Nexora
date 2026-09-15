@@ -9,13 +9,11 @@ import ModuleLock from "@/components/module-lock"
 import { FilterChips } from "@/components/filter-chips"
 import { issueCauseOptions } from "@/components/preflight-panel"
 import { validatePayrollRows, type PayrollValidationCode } from "@/lib/payroll-validation"
+import { EXCEPTION_KINDS, exceptionDetails, hasException, type ExceptionKind } from "@/lib/employee-exceptions"
 
-// What the table can be narrowed to: any pre-flight cause, or the statutory-exception flag.
-type EmployeeFilter = PayrollValidationCode | "statutory_exception"
-
-// An employee carrying any per-employee statutory override (see lib/payroll-engine.ts header).
-const hasException = (e: Employee) =>
-  Boolean(e.personal_relief_override || e.paye_band_flat_deduction != null || e.pension_rate_override != null || e.nssf_t2_override || e.ahl_relief_override != null)
+// What the table can be narrowed to: a pre-flight cause, any exception, or one kind of exception.
+type EmployeeFilter = PayrollValidationCode | "statutory_exception" | ExceptionKind
+const isExceptionKind = (f: EmployeeFilter): f is ExceptionKind => EXCEPTION_KINDS.some((k) => k.key === f)
 
 const NUMERIC_FIELDS = [
   "base_salary", "bonus_commission", "fringe_benefit", "transport_allowance",
@@ -370,22 +368,33 @@ export default function EmployeesPage() {
   )
   const filterOptions = useMemo(() => {
     const opts: Array<{ key: EmployeeFilter; label: string; count: number }> = issueCauseOptions(issues)
-    if (exceptionCount > 0) opts.push({ key: "statutory_exception", label: "statutory exceptions", count: exceptionCount })
+    if (exceptionCount > 0) opts.push({ key: "statutory_exception", label: "any statutory exception", count: exceptionCount })
+    for (const kind of EXCEPTION_KINDS) {
+      const count = employees.filter(kind.isSet).length
+      if (count > 0) opts.push({ key: kind.key, label: kind.label, count })
+    }
     return opts
-  }, [issues, exceptionCount])
-  // Reason shown under the name while a cause filter is active.
+  }, [issues, exceptionCount, employees])
+  // Reason shown under the name while a filter is active: the pre-flight
+  // message for a cause, or the exception(s) spelled out with their values.
   const reasonFor = useMemo(() => {
     const map = new Map<string, string>()
-    if (filter && filter !== "statutory_exception") {
-      for (const i of issues) if (i.code === filter && !map.has(i.employeeId)) map.set(i.employeeId, i.message)
+    if (!filter) return map
+    if (filter === "statutory_exception" || isExceptionKind(filter)) {
+      const only = filter === "statutory_exception" ? undefined : filter
+      for (const e of employees) {
+        const details = exceptionDetails(e, only)
+        if (details.length > 0) map.set(e.id, details.join(" · "))
+      }
+      return map
     }
+    for (const i of issues) if (i.code === filter && !map.has(i.employeeId)) map.set(i.employeeId, i.message)
     return map
-  }, [issues, filter])
-  const visibleEmployees = useMemo(() => {
-    if (!filter) return employees
-    if (filter === "statutory_exception") return employees.filter(hasException)
-    return employees.filter((e) => reasonFor.has(e.id))
-  }, [employees, filter, reasonFor])
+  }, [issues, employees, filter])
+  const visibleEmployees = useMemo(
+    () => (filter ? employees.filter((e) => reasonFor.has(e.id)) : employees),
+    [employees, filter, reasonFor],
+  )
 
   // Employee master holds PII/bank details — finance_manager only. Real
   // enforcement is server-side (every /api/employees* route checks this
