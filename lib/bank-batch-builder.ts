@@ -24,12 +24,14 @@
 import * as XLSX from "xlsx"
 
 /**
- * Constants read from Chrysal's own November 2024 file. The company account
- * and name are what the bank debits and shows on the statement; the batch
- * code and reference are the bank's own routing values.
+ * Constants read from Chrysal's own November 2024 file. The company name is
+ * what the bank shows on the statement; the batch code and reference are the
+ * bank's own routing values. The company ACCOUNT NUMBER the bank debits is
+ * deliberately not here — it comes from the BANK_BATCH_COMPANY_ACCOUNT
+ * environment variable (see app/api/payroll/bank-batch/route.ts), so it
+ * never sits in source control.
  */
 export const BANK_BATCH_CONFIG = {
-  companyAccount: "REDACTED-ACCOUNT",
   companyBankCode: "03",
   companyBranchCode: "045",
   companyName: "CHRYSALAFRICALTD",
@@ -82,7 +84,12 @@ export function buildBankBatch(
   rows: BankBatchRow[],
   month: string,
   paymentDate: Date,
+  /** The company account the bank debits — column B of the debit record. */
+  companyAccount: string,
 ): BankBatchResult {
+  if (!companyAccount || companyAccount.trim() === "") {
+    throw new Error("buildBankBatch: companyAccount is required — the bank cannot debit an unnamed account")
+  }
   const date = bankDateNumber(paymentDate)
   const skipped: BankBatchResult["skipped"] = []
 
@@ -108,7 +115,7 @@ export function buildBankBatch(
   const out: unknown[][] = []
   out.push([1, "LOCAL", "CR", date, C.batchCode])
   out.push([
-    2, C.companyAccount, C.companyBankCode, C.companyBranchCode, C.currency,
+    2, companyAccount.trim(), C.companyBankCode, C.companyBranchCode, C.currency,
     date, salaryNarrative(month), C.paymentReference, total, C.companyName,
   ])
   for (const r of payable) {

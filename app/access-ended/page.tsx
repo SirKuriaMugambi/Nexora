@@ -3,10 +3,12 @@ import { Clock, Mail } from "lucide-react"
 
 // Shown to anyone other than the system owner once RESTRICTED_ACCESS_FROM
 // (proxy.ts) has passed — proxy.ts redirects here rather than letting the
-// app render for a locked-out session. Deliberately static/server-rendered:
-// no auth call needed to display it, so it works even if a session is
-// already half-broken.
+// app render for a locked-out session. Deliberately server-rendered: no
+// auth call needed to display it, so it works even if a session is already
+// half-broken. The page is prerendered at build time, so the contact address
+// is whatever NEXORA_OWNER_EMAIL was when the deployment was built.
 export default function AccessEndedPage() {
+  const ownerEmail = (process.env.NEXORA_OWNER_EMAIL ?? "").trim()
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-50 dark:bg-black p-4 font-sans text-xs antialiased">
       <div className="w-full max-w-sm bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-900 p-6 sm:p-8 space-y-6 shadow-xl rounded-xl text-center">
@@ -31,13 +33,15 @@ export default function AccessEndedPage() {
           </p>
         </div>
 
-        <a
-          href="mailto:owner@example.com?subject=Nexora%20%E2%80%94%20Continuing%20Access"
-          className="inline-flex items-center justify-center gap-1.5 w-full py-2 font-mono text-[10px] uppercase font-bold tracking-wider bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 rounded-lg hover:opacity-90"
-        >
-          <Mail className="h-3.5 w-3.5" />
-          <span>Contact Caleb Mugambi</span>
-        </a>
+        {ownerEmail && (
+          <a
+            href={`mailto:${ownerEmail}?subject=Nexora%20%E2%80%94%20Continuing%20Access`}
+            className="inline-flex items-center justify-center gap-1.5 w-full py-2 font-mono text-[10px] uppercase font-bold tracking-wider bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 rounded-lg hover:opacity-90"
+          >
+            <Mail className="h-3.5 w-3.5" />
+            <span>Contact the system owner</span>
+          </a>
+        )}
       </div>
     </div>
   )

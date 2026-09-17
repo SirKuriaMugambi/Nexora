@@ -35,6 +35,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "date must be YYYY-MM-DD" }, { status: 400 })
   }
 
+  // The company account the bank debits lives in the environment, not in
+  // source — a bank account number has no business in a git history.
+  const companyAccount = (process.env.BANK_BATCH_COMPANY_ACCOUNT ?? "").trim()
+  if (!companyAccount) {
+    return NextResponse.json(
+      { error: "The company bank account is not configured — set BANK_BATCH_COMPANY_ACCOUNT to generate the bank file." },
+      { status: 503 },
+    )
+  }
+
   const supabase = createSupabaseAdminClient()
   if (!supabase) {
     return NextResponse.json({ error: "Backend is not configured" }, { status: 503 })
@@ -86,7 +96,7 @@ export async function GET(request: Request) {
     })
     .sort((a, b) => a.staffNo.localeCompare(b.staffNo))
 
-  const batch = buildBankBatch(rows, month, paymentDate)
+  const batch = buildBankBatch(rows, month, paymentDate, companyAccount)
 
   // Every employee incomplete is an employee who does not get paid, so this
   // refuses rather than quietly handing over a short file.

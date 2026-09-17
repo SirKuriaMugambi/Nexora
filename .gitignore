@@ -44,3 +44,12 @@ next-env.d.ts
 # local test/scratch files and Excel's own lock files
 test-*.xlsx
 ~$*.xlsx
+
+# the finance manager's reference workbooks and generated samples — never committed
+Finops Prod Doc/
+
+# editor workspace files
+*.code-workspace
+
+.vercel
+.env*

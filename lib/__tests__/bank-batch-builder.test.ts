@@ -1,6 +1,5 @@
 import * as XLSX from "xlsx"
 import {
-  BANK_BATCH_CONFIG,
   bankBatchToXlsx,
   bankDateNumber,
   buildBankBatch,
@@ -9,6 +8,8 @@ import {
 } from "@/lib/bank-batch-builder"
 
 const PAY_DATE = new Date(2024, 10, 26) // 26 Nov 2024, the source file's date
+// A stand-in for the real company account, which is supplied by the environment.
+const COMPANY_ACCOUNT = "0000000000"
 
 function row(staffNo: string, empCode: string, net: number, over: Partial<BankBatchRow> = {}): BankBatchRow {
   return {
@@ -38,7 +39,7 @@ describe("salaryNarrative", () => {
 
 describe("buildBankBatch", () => {
   const rows = [row("1000", "EMP001", 258896.20), row("1001", "EMP002", 279800.00)]
-  const batch = buildBankBatch(rows, "2024-11", PAY_DATE)
+  const batch = buildBankBatch(rows, "2024-11", PAY_DATE, COMPANY_ACCOUNT)
 
   it("opens with the header record", () => {
     expect(batch.rows[0]).toEqual([1, "LOCAL", "CR", 26112024, "000800"])
@@ -46,7 +47,7 @@ describe("buildBankBatch", () => {
 
   it("carries the company debit record, with the total and company name", () => {
     expect(batch.rows[1]).toEqual([
-      2, BANK_BATCH_CONFIG.companyAccount, "03", "045", "KES",
+      2, COMPANY_ACCOUNT, "03", "045", "KES",
       26112024, "NOV SALARY", "SALARYPAYT", 538696.20, "CHRYSALAFRICALTD",
     ])
   })
@@ -80,6 +81,7 @@ describe("buildBankBatch", () => {
       ],
       "2024-11",
       PAY_DATE,
+      COMPANY_ACCOUNT,
     )
     expect(b.rows.filter((r) => r[0] === 3)).toHaveLength(1)
     expect(b.skipped.map((s) => s.staffNo)).toEqual(["1002", "1003", "1004"])
@@ -90,11 +92,16 @@ describe("buildBankBatch", () => {
     expect(b.total).toBe(1000)
     expect(b.rows[1][8]).toBe(1000)
   })
+
+  it("refuses to build a file with no company account to debit", () => {
+    expect(() => buildBankBatch(rows, "2024-11", PAY_DATE, "")).toThrow(/companyAccount is required/)
+    expect(() => buildBankBatch(rows, "2024-11", PAY_DATE, "   ")).toThrow(/companyAccount is required/)
+  })
 })
 
 describe("bankBatchToXlsx", () => {
   it("keeps leading zeros on account numbers and branch codes", () => {
-    const batch = buildBankBatch([row("1000", "EMP001", 258896.20)], "2024-11", PAY_DATE)
+    const batch = buildBankBatch([row("1000", "EMP001", 258896.20)], "2024-11", PAY_DATE, COMPANY_ACCOUNT)
     const wb = XLSX.read(bankBatchToXlsx(batch), { type: "buffer", cellNF: true })
     expect(wb.SheetNames).toEqual(["BANK DETAILS"])
     const ws = wb.Sheets["BANK DETAILS"]

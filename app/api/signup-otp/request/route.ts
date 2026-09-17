@@ -4,10 +4,10 @@ import { createSupabaseAdminClient } from "@/lib/supabase-server"
 import { sendSignupOtpEmail, isEmailConfigured } from "@/lib/email"
 import { randomInt } from "crypto"
 
-// Must match proxy.ts's OWNER_EMAIL — kept as a separate constant rather
-// than importing across the middleware/route boundary. This is the ONLY
-// address the code is ever sent to; the person signing up never sees it.
-const OWNER_EMAIL = "owner@example.com"
+// The system owner's address, from the environment (the same variable
+// proxy.ts and /api/admin/pending-signups read). This is the ONLY address
+// the code is ever sent to; the person signing up never sees it.
+const OWNER_EMAIL = (process.env.NEXORA_OWNER_EMAIL ?? "").trim()
 const CODE_TTL_MS = 15 * 60 * 1000
 
 // Generates a fresh 6-digit code for the CURRENTLY AUTHENTICATED session
@@ -64,12 +64,14 @@ export async function POST() {
     return NextResponse.json({ error: updateError.message }, { status: 500 })
   }
 
-  if (!isEmailConfigured()) {
+  if (!isEmailConfigured() || !OWNER_EMAIL) {
     return NextResponse.json({
       ok: true,
       expiresAt,
       emailSent: false,
-      note: "Email isn't configured yet — check /admin/pending-signups for the code instead.",
+      note: !OWNER_EMAIL
+        ? "NEXORA_OWNER_EMAIL isn't configured, so there is no one to email the code to — check /admin/pending-signups for it instead."
+        : "Email isn't configured yet — check /admin/pending-signups for the code instead.",
     })
   }
 

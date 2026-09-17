@@ -18,13 +18,24 @@ const PORTAL_LOGIN_API_PATH = "/api/portal-login"
 // business gate (closing an open-ended free evaluation), not a security
 // fix — do not extend this pattern for real access control; the role
 // checks in lib/supabase.ts remain the actual authorization boundary.
-// Exemptions: the owner, Tony (finance manager — re-added after being
-// caught by this same gate once it took effect), and every employee-portal
-// account (role='employee') — a payslip/P9 self-service login is a
-// different thing entirely from evaluating the full FinOps suite for free,
-// so it's never meant to be swept up in this gate regardless of date.
-const OWNER_EMAIL = "owner@example.com"
-const EVAL_LOCK_EXEMPT_EMAILS = new Set([OWNER_EMAIL, "finance.manager@example.com"])
+// Exemptions: the addresses in NEXORA_EVAL_EXEMPT_EMAILS (comma-separated —
+// the owner and the finance manager), and every employee-portal account
+// (role='employee') — a payslip/P9 self-service login is a different thing
+// entirely from evaluating the full FinOps suite for free, so it's never
+// meant to be swept up in this gate regardless of date.
+//
+// The gate is only armed when that variable is set. Fail-open is the
+// deliberate choice: a missing variable on a fresh deployment must not lock
+// the owner and the finance manager out of their own system, and the OTP
+// sign-up gate below already stops anyone new from getting in.
+const OWNER_EMAIL = (process.env.NEXORA_OWNER_EMAIL ?? "").trim().toLowerCase()
+const EVAL_LOCK_EXEMPT_EMAILS = new Set(
+  (process.env.NEXORA_EVAL_EXEMPT_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+)
+const EVAL_LOCK_ARMED = EVAL_LOCK_EXEMPT_EMAILS.size > 0
 // 2026-09-03 00:00:00 Africa/Nairobi (EAT, UTC+3, no DST) == this UTC instant.
 const RESTRICTED_ACCESS_FROM = new Date("2026-09-02T21:00:00Z")
 
@@ -84,13 +95,19 @@ export async function proxy(request: NextRequest) {
   }
 
   const isEvalLockExempt =
-    !user || EVAL_LOCK_EXEMPT_EMAILS.has(user.email ?? "") || role === "employee"
-  const isLockedOut = !isEvalLockExempt && Date.now() >= RESTRICTED_ACCESS_FROM.getTime()
+    !user
+    || EVAL_LOCK_EXEMPT_EMAILS.has((user.email ?? "").toLowerCase())
+    || role === "employee"
+  const isLockedOut = EVAL_LOCK_ARMED && !isEvalLockExempt && Date.now() >= RESTRICTED_ACCESS_FROM.getTime()
 
   if (isLockedOut) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json(
-        { error: "The evaluation period for this system has ended. Contact owner@example.com to continue." },
+        {
+          error:
+            "The evaluation period for this system has ended."
+            + (OWNER_EMAIL ? ` Contact ${OWNER_EMAIL} to continue.` : ""),
+        },
         { status: 403 },
       )
     }
