@@ -35,6 +35,13 @@ lib/
   payroll-backend.ts        Payslip PDF layout, run workbook export.
   itax-export-builder.ts    PAYE return CSV.
   excel-ingest.ts           Header-driven parsing of the monthly variable-pay workbook.
+                            Captures every variable-pay column the sheet carries
+                            (row.variable, keyed by category); absent columns stay absent.
+  variable-pay.ts           The variable-pay categories (= the engine's variable inputs),
+                            header aliases, applyVariablePay(), variablePayChanges().
+  variable-pay-store.ts     Server side: applyUploadToMonth() stores only deviations from
+                            Employee Master; monthLockState() — locked once the run is
+                            Submitted/Approved/Posted.
   email.ts                  Resend wrappers (payslips, P9s, sign-up codes).
   rate-limit.ts             DB-backed brute-force protection for every credential check.
   supabase.ts               requireRole() / requireEmployeeSelf() — the real access gate.
@@ -44,9 +51,15 @@ app/api/payroll/            route.ts (GET preview, POST run → Draft), submit, 
                             reject, post (→ AX), ax-journal, gl-journal, bank-batch,
                             payslips, send-payslips, p9, send-p9, itax-export, import.
 app/api/employees/          Employee Master CRUD + portal provisioning.
+app/api/variable-pay/       GET month ledger, PUT one override (null = back to standard),
+                            apply/ (POST a previewed sheet). GET /api/payroll applies the
+                            month's ledger and returns variable_pay_changes per employee.
 app/api/my/                 Employee self-service — scoped to the caller's own record.
 app/(workspace)/payroll/    Payroll UI (Register · Statutory · AX GL Posting · Calculator).
-app/(workspace)/employees/  Employee Master.
+app/(workspace)/employees/  Employee Master. Reads ?edit=<id>&field=<name> and
+                            ?add=<id>&name=&basic= deep links from pre-flight and import.
+app/(workspace)/variable-pay/ Monthly variable-pay ledger: upload → preview → apply, grid
+                            of employee × category with click-to-edit, change filters.
 proxy.ts                    Next.js 16 middleware: session refresh, public paths, OTP gate,
                             employee-role fencing, evaluation cutoff.
 supabase/migrations/        Schema history. schema.sql is a snapshot and may lag.
@@ -108,6 +121,6 @@ npm run build        # what Vercel runs
   until they enter a code sent only to `NEXORA_OWNER_EMAIL`.
 - Employees sign in at `/employee-login` (email + last 4 of their KRA PIN),
   and can reach only `/my-portal` and `/api/my/*` — enforced in `proxy.ts`.
-- Payroll, Employee Master and Staff Documents are `finance_manager`-only,
+- Payroll, Variable Pay, Employee Master and Staff Documents are `finance_manager`-only,
   checked server-side on every route. The module-unlock code on top is a
   UI convenience, not the security boundary.
