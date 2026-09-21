@@ -14,6 +14,7 @@
  */
 
 import * as XLSX from "xlsx"
+import { categoryForHeader, type VariablePayCategory } from "@/lib/variable-pay"
 
 export interface ParsedPayrollRow {
   id: string
@@ -26,11 +27,20 @@ export interface ParsedPayrollRow {
   transportAllowance: number
   arrears: number
   otOther: number
+  /**
+   * Every variable-pay column the sheet actually carried, keyed by category —
+   * bonuses, overtime, advances, loans, SACCO and the rest. A category whose
+   * column is absent is simply not present here, so the month keeps the
+   * employee's standard value for it rather than being zeroed.
+   */
+  variable: Partial<Record<VariablePayCategory, number>>
 }
 
 export interface ParseWorkbookResult {
   rows: ParsedPayrollRow[]
   skipped: Array<{ row: number; reason: string }>
+  /** Which variable-pay categories the sheet carried, in column order. */
+  categories: VariablePayCategory[]
 }
 
 const JUNK_KEYWORDS = [
@@ -131,6 +141,17 @@ export function parsePayrollWorksheet(worksheet: XLSX.WorkSheet): ParseWorkbookR
   const othersIndex = header.findIndex((cell) => cell.includes("Salary Arrears/OT/Others"))
   const departmentIndex = header.findIndex((cell) => cell === "Category")
 
+  // Every column that names a variable-pay category. The identity columns
+  // are excluded so a "Name" or "Category" header can never be mistaken for
+  // a pay column, and the first column claiming a category wins.
+  const identityColumns = new Set([staffIndex, nameIndex, pinIndex, departmentIndex, basicIndex])
+  const variableColumns = new Map<VariablePayCategory, number>()
+  header.forEach((cell, index) => {
+    if (identityColumns.has(index)) return
+    const category = categoryForHeader(cell)
+    if (category && !variableColumns.has(category)) variableColumns.set(category, index)
+  })
+
   const result: ParsedPayrollRow[] = []
   const skipped: Array<{ row: number; reason: string }> = []
 
@@ -170,10 +191,13 @@ export function parsePayrollWorksheet(worksheet: XLSX.WorkSheet): ParseWorkbookR
       transportAllowance: normalizeNumber(row[transportIndex]),
       arrears: normalizeNumber(row[arrearsIndex]),
       otOther: normalizeNumber(row[othersIndex]),
+      variable: Object.fromEntries(
+        [...variableColumns.entries()].map(([category, index]) => [category, normalizeNumber(row[index])]),
+      ) as Partial<Record<VariablePayCategory, number>>,
     })
   }
 
-  return { rows: result, skipped }
+  return { rows: result, skipped, categories: [...variableColumns.keys()] }
 }
 
 export interface ParsePayrollWorkbookOptions {

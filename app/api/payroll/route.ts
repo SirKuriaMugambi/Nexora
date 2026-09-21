@@ -4,6 +4,7 @@ import { buildPayrollVarianceReport, computePayroll, type EmployeeSummary } from
 import { createSupabaseAdminClient } from "@/lib/supabase-server"
 import { requireRole } from "@/lib/supabase"
 import { currentPayMonth, rulesForMonth, type KenyaPayrollRules } from "@/lib/payroll-rules-config"
+import { applyVariablePay, variablePayChanges, type VariablePayRow } from "@/lib/variable-pay"
 
 function normalizeEmployeeRow(row: Record<string, unknown>, rules: KenyaPayrollRules) {
   const input = {
@@ -105,7 +106,34 @@ export async function GET(request: Request) {
   if (supabase) {
     const { data, error } = await supabase.from("employees").select("*").order("name")
     if (!error && Array.isArray(data)) {
-      return NextResponse.json({ employees: data.map((row) => normalizeEmployeeRow(row as Record<string, unknown>, rules)), run })
+      // The month's variable pay (bonuses, overtime, advances…) overrides the
+      // standard Employee Master figures before anything is computed, and
+      // each employee carries the list of what changed so the register can
+      // say "standard pay" or spell out the differences.
+      const payMonth = month ?? currentPayMonth()
+      const { data: vpRows } = await supabase
+        .from("variable_pay")
+        .select("employee_id, category, amount, note, source")
+        .eq("month", payMonth)
+      const byEmployee = new Map<string, VariablePayRow[]>()
+      for (const r of vpRows ?? []) {
+        const row = { ...r, amount: Number(r.amount) } as VariablePayRow
+        byEmployee.set(row.employee_id, [...(byEmployee.get(row.employee_id) ?? []), row])
+      }
+      const employees = data.map((raw) => {
+        const master = raw as Record<string, unknown>
+        const overrides = byEmployee.get(String(master.id)) ?? []
+        const standard = Object.fromEntries(
+          ["bonus_commission", "arrears", "ot_other", "transport_allowance", "fringe_benefit",
+           "voluntary_pension", "advances", "helb", "company_loan", "bank_loan", "sacco"].map((k) => [k, Number(master[k] ?? 0)]),
+        ) as Parameters<typeof variablePayChanges>[0]
+        const effective = applyVariablePay({ ...master, ...standard }, overrides)
+        return {
+          ...normalizeEmployeeRow(effective as Record<string, unknown>, rules),
+          variable_pay_changes: variablePayChanges(standard, overrides),
+        }
+      })
+      return NextResponse.json({ employees, run })
     }
   }
 

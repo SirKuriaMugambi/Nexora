@@ -19,10 +19,9 @@ import { buildAxPayrollJournal } from "@/lib/ax-journal-builder"
 import { rulesForMonth } from "@/lib/payroll-rules-config"
 import { validatePayrollRows } from "@/lib/payroll-validation"
 import { PreflightPanel } from "@/components/preflight-panel"
-import { FilterChips } from "@/components/filter-chips"
+import { describeChanges } from "@/lib/variable-pay"
 import ModuleLock from "@/components/module-lock"
 import type { Employee } from "@/lib/seeds"
-import type { ImportPreviewResult } from "@/app/api/payroll/import/route"
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 function fmt(n: number) {
@@ -42,13 +41,6 @@ function fmtD(n: number) {
  *    "nothing happened", so the button got clicked again, and every
  *    click that did survive queued another Save-As prompt.
  */
-// Why the workbook parser dropped a row — its codes, in the finance manager's words.
-const SKIP_REASON_LABELS: Record<string, string> = {
-  no_staff_no_or_name: "no staff number or name in the row",
-  currency_value_not_a_name: "name column held a currency value",
-  junk_row: "header, blank or junk row",
-}
-
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
@@ -279,15 +271,6 @@ export default function PayrollPage() {
   })
 
   // Variable-pay import (One-Click Calculation) state
-  const [importing, setImporting] = useState(false)
-  const [importError, setImportError] = useState<string | null>(null)
-  const [importPreview, setImportPreview] = useState<ImportPreviewResult | null>(null)
-  // Which part of the import preview is listed: matched rows by default;
-  // unmatched and skipped were previously only counted, never shown.
-  const [importView, setImportView] = useState<"matched" | "unmatched" | "skipped" | null>(null)
-
-  // Re-runs whenever the selected pay period changes, so the workflow status
-  // (Draft/Submitted/Approved/Posted) always reflects the month on screen.
   useEffect(() => {
     let ignore = false
 
@@ -322,6 +305,8 @@ export default function PayrollPage() {
 
   // Aggregated data
   const summaries = useMemo(() => employees.map(toSummary), [employees])
+  const changedEmployees = useMemo(() => employees.filter((e) => (e.variable_pay_changes?.length ?? 0) > 0), [employees])
+  const totalChanges = useMemo(() => changedEmployees.reduce((n, e) => n + (e.variable_pay_changes?.length ?? 0), 0), [changedEmployees])
 
   // Pre-flight checks — errors block Run Payroll (the API enforces the same
   // rules server-side); warnings flag degraded outputs (bank file, email).
@@ -417,68 +402,6 @@ export default function PayrollPage() {
       next.has(idx) ? next.delete(idx) : next.add(idx)
       return next
     })
-  }
-
-  async function handleImportFile(file: File) {
-    setImporting(true)
-    setImportError(null)
-    setImportPreview(null)
-    try {
-      const formData = new FormData()
-      formData.append("file", file)
-      const response = await fetch("/api/payroll/import", { method: "POST", body: formData })
-      const payload = await response.json()
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Failed to parse the uploaded workbook")
-      }
-      setImportPreview(payload as ImportPreviewResult)
-      setImportView(null)   // a fresh preview starts unfiltered
-    } catch (err) {
-      setImportError(err instanceof Error ? err.message : "Failed to import workbook")
-    } finally {
-      setImporting(false)
-    }
-  }
-
-  // Merge confirmed variable-pay values from the import preview into the
-  // in-memory employee register (matched staff only — unmatched rows need
-  // to go through the Master Data Hub first, since a payroll run can't
-  // introduce a brand-new employee identity by itself).
-  function applyImportPreview() {
-    if (!importPreview) return
-    setEmployees((prev) =>
-      prev.map((emp) => {
-        const match = importPreview.matched.find((m) => m.parsed.id === emp.id)
-        if (!match) return emp
-        const inputs = {
-          base_salary: match.parsed.baseSalary,
-          bonus_commission: match.parsed.bonusCommission,
-          fringe_benefit: match.parsed.fringeBenefit,
-          transport_allowance: match.parsed.transportAllowance,
-          arrears: match.parsed.arrears,
-          ot_other: match.parsed.otOther,
-          voluntary_pension: emp.voluntary_pension,
-          advances: emp.advances,
-          helb: emp.helb,
-          company_loan: emp.company_loan,
-          bank_loan: emp.bank_loan,
-          sacco: emp.sacco,
-          personal_relief_override: emp.personal_relief_override ?? undefined,
-          paye_band_flat_deduction: emp.paye_band_flat_deduction ?? undefined,
-          pension_rate_override: emp.pension_rate_override ?? undefined,
-          nssf_t2_override: emp.nssf_t2_override ?? undefined,
-          ahl_relief_override: emp.ahl_relief_override ?? undefined,
-        }
-        const computed = computePayroll(inputs, rulesForMonth(apiMonth))
-        return { ...emp, ...inputs, ...computed }
-      })
-    )
-    addAuditLog(
-      "PAYROLL VARIABLE-PAY IMPORTED",
-      `${importPreview.matched.length} staff`,
-      `Imported variable pay for ${importPreview.matched.length} matched staff (${importPreview.unmatched.length} unmatched, ${importPreview.skipped.length} rows skipped).`,
-    )
-    setImportPreview(null)
   }
 
   // Computes and saves this month's run (always lands as "Draft" — see
@@ -965,21 +888,13 @@ export default function PayrollPage() {
               <span className="text-xs font-mono uppercase tracking-wider font-bold">Employee Payroll Register — {payMonth}</span>
             </div>
             <div className="flex gap-2">
-              <label
-                className={`px-2.5 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer ${buttonRadius} ${importing ? "opacity-50 pointer-events-none" : ""}`}
+              <Link
+                href={`/variable-pay?month=${apiMonth}`}
+                className={`px-2.5 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${buttonRadius}`}
+                title="Upload or edit this month's bonuses, overtime, advances and other variable pay"
               >
-                <Upload className="h-3.5 w-3.5" /><span>{importing ? "Parsing…" : "Import Variable Pay"}</span>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (file) handleImportFile(file)
-                    e.target.value = ""
-                  }}
-                />
-              </label>
+                <Upload className="h-3.5 w-3.5" /><span>Variable Pay</span>
+              </Link>
               <Link
                 href="/employees"
                 className={`px-2.5 py-1.5 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${buttonRadius}`}
@@ -993,73 +908,18 @@ export default function PayrollPage() {
             <div className="text-[10px] font-mono uppercase text-zinc-400">Loading payroll data from Supabase…</div>
           )}
 
-          {importError && (
-            <div className="p-3 border border-rose-200 bg-rose-50/40 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900 text-[11px]">
-              {importError}
-            </div>
-          )}
-
-          {importPreview && (
-            <div className={`p-5 border border-zinc-200 dark:border-zinc-900 bg-white dark:bg-zinc-950 space-y-3 ${cardRadius}`}>
-              <div className="flex items-center justify-between border-b dark:border-zinc-900 pb-2">
-                <h3 className="text-xs font-mono uppercase tracking-wider font-bold">Import Preview</h3>
-                <button onClick={() => setImportPreview(null)} className="text-zinc-400 hover:text-zinc-600"><X className="h-4 w-4" /></button>
-              </div>
-              <FilterChips
-                options={[
-                  { key: "matched", label: "matched", count: importPreview.matched.length },
-                  { key: "unmatched", label: "unmatched (not in Employee Master)", count: importPreview.unmatched.length },
-                  { key: "skipped", label: "rows skipped", count: importPreview.skipped.length },
-                ]}
-                active={importView}
-                onChange={setImportView}
-                total={importPreview.matched.length + importPreview.unmatched.length + importPreview.skipped.length}
-                allLabel="Rows read"
-                tone="neutral"
-              />
-              {importPreview.unmatched.length > 0 && (
-                <p className="text-[9px] font-mono text-amber-500">
-                  Unmatched staff numbers won&apos;t be applied — add them via Manage Employees first, then re-import.
-                </p>
-              )}
-              <div className="max-h-40 overflow-y-auto border-t dark:border-zinc-900 pt-2 text-[10px] font-mono space-y-1">
-                {(importView === null || importView === "matched") && importPreview.matched.map((m) => (
-                  <div key={`m-${m.parsed.id}`} className="flex justify-between text-zinc-500">
-                    <span><span className="text-emerald-600">✓</span> {m.parsed.id} · {m.existingName}</span>
-                    <span>Basic {fmt(m.parsed.baseSalary)}</span>
-                  </div>
-                ))}
-                {(importView === null || importView === "unmatched") && importPreview.unmatched.map((u) => (
-                  <div key={`u-${u.parsed.id}`} className="flex justify-between gap-3 text-amber-600 dark:text-amber-400">
-                    <span>{u.parsed.id} · {u.parsed.name || "(no name)"} — not in Employee Master</span>
-                    <span className="whitespace-nowrap">
-                      Basic {fmt(u.parsed.baseSalary)}{" "}
-                      <Link
-                        href={`/employees?add=${encodeURIComponent(u.parsed.id)}&name=${encodeURIComponent(u.parsed.name ?? "")}&basic=${u.parsed.baseSalary}`}
-                        className="uppercase tracking-wider underline underline-offset-2 hover:opacity-80"
-                        title="Opens Employee Master with the Add form pre-filled from this row"
-                      >
-                        Add →
-                      </Link>
-                    </span>
-                  </div>
-                ))}
-                {(importView === null || importView === "skipped") && importPreview.skipped.map((sk) => (
-                  <div key={`s-${sk.row}`} className="flex justify-between text-zinc-400">
-                    <span>Row {sk.row}</span>
-                    <span>{SKIP_REASON_LABELS[sk.reason] ?? sk.reason}</span>
-                  </div>
-                ))}
-                {importView === "unmatched" && importPreview.unmatched.length === 0 && <div className="text-zinc-400">No unmatched rows.</div>}
-                {importView === "skipped" && importPreview.skipped.length === 0 && <div className="text-zinc-400">No rows were skipped.</div>}
-              </div>
-              <button
-                onClick={applyImportPreview}
-                disabled={importPreview.matched.length === 0}
-                className={`w-full py-2 font-mono text-[10px] uppercase tracking-wider font-bold disabled:opacity-50 ${accentBg} ${buttonRadius}`}
-              >
-                Apply {importPreview.matched.length} Matched Rows to Register
-              </button>
+          {!loadingEmployees && employees.length > 0 && (
+            <div className={`p-3 border text-[11px] flex flex-wrap items-center justify-between gap-2 ${changedEmployees.length > 0
+              ? "border-amber-200 bg-amber-50/40 dark:bg-amber-950/20 dark:border-amber-900 text-amber-700 dark:text-amber-400"
+              : "border-zinc-200 bg-zinc-50/60 dark:bg-zinc-900/30 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400"} ${cardRadius}`}>
+              <span>
+                {changedEmployees.length === 0
+                  ? `No variable pay recorded for ${payMonth} — every employee is on standard pay.`
+                  : `${changedEmployees.length} of ${employees.length} employees differ from standard pay this month (${totalChanges} change${totalChanges === 1 ? "" : "s"}). Rows marked below; expand a row to see what changed.`}
+              </span>
+              <Link href={`/variable-pay?month=${apiMonth}`} className="font-mono text-[10px] uppercase tracking-wider underline underline-offset-2 whitespace-nowrap">
+                {changedEmployees.length === 0 ? "Upload or enter variable pay →" : "Manage variable pay →"}
+              </Link>
             </div>
           )}
 
@@ -1077,6 +937,7 @@ export default function PayrollPage() {
                       <th className="px-4 py-2.5 text-right">Net PAYE</th>
                       <th className="px-4 py-2.5 text-right">Total Ded.</th>
                       <th className="px-4 py-2.5 text-right">Net Pay</th>
+                      <th className="px-4 py-2.5">Changes</th>
                       <th className="px-4 py-2.5 text-center">Actions</th>
                     </tr>
                   </thead>
@@ -1103,6 +964,20 @@ export default function PayrollPage() {
                             <td className="px-4 py-3 text-right font-mono text-rose-400">–{fmt(emp.deductions)}</td>
                             <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600">{fmt(emp.net_salary)}</td>
                             <td className="px-4 py-3">
+                              {(emp.variable_pay_changes?.length ?? 0) === 0 ? (
+                                <span className="font-mono text-[9px] px-1.5 py-0.5 bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400 whitespace-nowrap">Standard pay</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleRow(idx)}
+                                  title={describeChanges(emp.variable_pay_changes ?? [])}
+                                  className="font-mono text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 whitespace-nowrap hover:opacity-80"
+                                >
+                                  {emp.variable_pay_changes!.length} change{emp.variable_pay_changes!.length === 1 ? "" : "s"}
+                                </button>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
                               <div className="flex items-center justify-center gap-1">
                                 <button
                                   onClick={() => setActiveEmpIdx(idx)}
@@ -1116,18 +991,34 @@ export default function PayrollPage() {
                           </tr>
                           {expanded && (
                             <tr className="bg-zinc-50/30 dark:bg-zinc-900/10">
-                              <td colSpan={8} className="px-6 py-3">
+                              <td colSpan={9} className="px-6 py-3 space-y-3">
+                                <div className="text-[10px] font-mono">
+                                  <p className="text-[8px] uppercase text-zinc-400 mb-1">This month vs standard pay</p>
+                                  {(emp.variable_pay_changes?.length ?? 0) === 0 ? (
+                                    <p className="text-zinc-500">No changes — standard pay from Employee Master.</p>
+                                  ) : (
+                                    <ul className="space-y-0.5 text-amber-700 dark:text-amber-400">
+                                      {emp.variable_pay_changes!.map((c) => (
+                                        <li key={c.category}>
+                                          {c.label}: standard {fmt(c.standard)} → this month <b>{fmt(c.actual)}</b>
+                                          {c.note ? <span className="text-zinc-400"> · {c.note}</span> : null}
+                                          {c.source === "upload" ? <span className="text-zinc-400"> · from sheet</span> : null}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
                                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 text-[10px] font-mono">
                                   {[
-                                    ["NSSF T1", `420`],
-                                    ["NSSF T2", `1,740`],
+                                    ["NSSF T1", fmt(emp.nssf_t1 ?? 0)],
+                                    ["NSSF T2", fmt(emp.nssf_t2 ?? 0)],
                                     ["SHIF 2.75%", fmt(emp.shif ?? emp.nhif)],
                                     ["AHL 1.5%", fmt(emp.ahl ?? 0)],
                                     ["Pension EE 5%", fmt(emp.defined_pension_ee ?? 0)],
                                     ["Pension ER 10%", fmt(emp.defined_pension_er ?? 0)],
                                     ["Taxable Pay", fmt(emp.taxable_pay ?? 0)],
                                     ["Gross PAYE", fmt(emp.gross_paye ?? 0)],
-                                    ["Personal Relief", "2,400"],
+                                    ["Personal Relief", fmt(emp.personal_relief ?? 0)],
                                     ["AHL Relief", fmt(emp.ahl_relief ?? 0)],
                                     ["Net PAYE", fmt(emp.net_paye ?? emp.paye)],
                                     ["Advances", fmt(emp.advances ?? 0)],

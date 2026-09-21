@@ -90,6 +90,10 @@ export interface Employee {
   // Set once the employee has a self-service portal login — see
   // app/api/employees/[id]/portal-access. Non-null = has portal access.
   portal_user_id?: string | null
+  // Computed by GET /api/payroll for the month being viewed: what this
+  // month's variable pay changed versus the standard figures above. Empty
+  // means standard pay. Never stored on the employee record.
+  variable_pay_changes?: import("@/lib/variable-pay").VariablePayChange[]
 
   // Per-employee statutory exceptions — see lib/payroll-engine.ts file header.
   // All default to standard treatment; only set for employees Tony confirms.

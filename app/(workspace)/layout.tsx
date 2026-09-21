@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useFinOps } from "@/components/finops-provider";
-import { useTheme, ColorTheme, CardEdge } from "@/components/theme-provider";
+import { useTheme, ColorTheme, CardEdge, FONT_SCALES, FONT_FAMILIES, type FontScale, type FontFamily } from "@/components/theme-provider";
 import Logo from "@/components/logo";
 import {
   LayoutDashboard,
@@ -19,6 +19,7 @@ import {
   Coins,
   Globe,
   Wallet,
+  Upload,
   PieChart,
   TrendingUp,
   FolderArchive,
@@ -66,6 +67,10 @@ export default function WorkspaceLayout({
     setColorTheme,
     cardEdge,
     setCardEdge,
+    fontScale,
+    setFontScale,
+    fontFamily,
+    setFontFamily,
     accentBg,
     accentText,
     accentBadge,
@@ -138,6 +143,7 @@ export default function WorkspaceLayout({
       title: "Operations & Reports",
       items: [
         { name: "Payroll & PAYE", href: "/payroll", icon: Wallet, restrictedToRole: "finance_manager" },
+        { name: "Variable Pay", href: "/variable-pay", icon: Upload, restrictedToRole: "finance_manager" },
         { name: "Employee Master", href: "/employees", icon: IdCard, restrictedToRole: "finance_manager" },
         { name: "Budget vs Actual", href: "/budget", icon: PieChart },
         {
@@ -515,6 +521,55 @@ export default function WorkspaceLayout({
                           } ${buttonRadius}`}
                         >
                           {e.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Font size */}
+                  <div className="space-y-1.5">
+                    <span className="text-[9px] font-mono text-zinc-400 uppercase">
+                      FONT SIZE
+                    </span>
+                    <div className="grid grid-cols-4 gap-1">
+                      {(Object.keys(FONT_SCALES) as FontScale[]).map((id) => (
+                        <button
+                          key={id}
+                          onClick={() => setFontScale(id)}
+                          title={FONT_SCALES[id].name}
+                          className={`py-1 border text-[10px] font-mono ${
+                            fontScale === id
+                              ? "border-zinc-900 dark:border-zinc-100 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-950 font-bold"
+                              : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 bg-transparent"
+                          } ${buttonRadius}`}
+                        >
+                          {id === "compact" ? "A−" : id === "standard" ? "A" : id === "large" ? "A+" : "A++"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Font type */}
+                  <div className="space-y-1.5">
+                    <span className="text-[9px] font-mono text-zinc-400 uppercase">
+                      FONT TYPE
+                    </span>
+                    <div className="grid grid-cols-1 gap-1">
+                      {(Object.keys(FONT_FAMILIES) as FontFamily[]).map((id) => (
+                        <button
+                          key={id}
+                          onClick={() => setFontFamily(id)}
+                          style={{ fontFamily: FONT_FAMILIES[id].sans }}
+                          className={`flex items-center justify-between px-2.5 py-1 border text-[11px] text-left ${
+                            fontFamily === id
+                              ? "border-zinc-900 dark:border-zinc-100 bg-zinc-50 dark:bg-zinc-900 font-bold"
+                              : "border-zinc-150 dark:border-zinc-850 hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                          } ${buttonRadius}`}
+                        >
+                          <span>{FONT_FAMILIES[id].name}</span>
+                          {fontFamily === id && (
+                            <Check className="h-3 w-3 text-zinc-800 dark:text-zinc-200" />
+                          )}
                         </button>
                       ))}
                     </div>

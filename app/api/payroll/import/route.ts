@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import type { VariablePayCategory } from "@/lib/variable-pay"
 import { createSupabaseAdminClient } from "@/lib/supabase-server"
 import { requireRole } from "@/lib/supabase"
 import { parsePayrollWorkbook, type ParsedPayrollRow } from "@/lib/excel-ingest"
@@ -13,6 +14,10 @@ export interface ImportPreviewResult {
   matched: ImportPreviewRow[]
   unmatched: ImportPreviewRow[]
   skipped: Array<{ row: number; reason: string }>
+  /** Variable-pay categories the sheet carried — the only ones an apply may write. */
+  categories: VariablePayCategory[]
+  /** Sheet's Basic vs Employee Master, for matched rows where they differ. Reported, never applied. */
+  basicDifferences: Array<{ employeeId: string; master: number; sheet: number }>
 }
 
 // Parses an uploaded monthly variable-pay workbook and returns a PREVIEW
@@ -55,12 +60,14 @@ export async function POST(request: Request) {
     )
   }
 
-  const { data: existingEmployees, error } = await supabase.from("employees").select("id, name")
+  const { data: existingEmployees, error } = await supabase.from("employees").select("id, name, base_salary")
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
   const existingById = new Map((existingEmployees ?? []).map((e) => [e.id, e.name as string]))
+  const basicById = new Map((existingEmployees ?? []).map((e) => [e.id, Number(e.base_salary ?? 0)]))
+  const basicDifferences: ImportPreviewResult["basicDifferences"] = []
 
   const matched: ImportPreviewRow[] = []
   const unmatched: ImportPreviewRow[] = []
@@ -68,11 +75,15 @@ export async function POST(request: Request) {
   for (const row of parseResult.rows) {
     if (existingById.has(row.id)) {
       matched.push({ parsed: row, matchStatus: "matched", existingName: existingById.get(row.id) })
+      const master = basicById.get(row.id) ?? 0
+      if (row.baseSalary > 0 && Math.abs(row.baseSalary - master) >= 0.005) {
+        basicDifferences.push({ employeeId: row.id, master, sheet: row.baseSalary })
+      }
     } else {
       unmatched.push({ parsed: row, matchStatus: "unmatched" })
     }
   }
 
-  const preview: ImportPreviewResult = { matched, unmatched, skipped: parseResult.skipped }
+  const preview: ImportPreviewResult = { matched, unmatched, skipped: parseResult.skipped, categories: parseResult.categories, basicDifferences }
   return NextResponse.json(preview)
 }

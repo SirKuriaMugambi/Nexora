@@ -5,6 +5,31 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 export type ThemeMode = "light" | "dark";
 export type ColorTheme = "charcoal" | "moss" | "navy" | "sand" | "crimson";
 export type CardEdge = "sharp" | "rounded" | "playful";
+export type FontScale = "compact" | "standard" | "large" | "xl";
+export type FontFamily = "geist" | "system" | "serif" | "mono";
+
+// The whole interface is set in fixed pixel sizes, so "font size" is applied
+// as a page zoom rather than a root font-size — every label, cell and button
+// scales together and the layout keeps its proportions.
+export const FONT_SCALES: Record<FontScale, { name: string; zoom: string }> = {
+  compact: { name: "Compact", zoom: "0.9" },
+  standard: { name: "Standard", zoom: "1" },
+  large: { name: "Large", zoom: "1.15" },
+  xl: { name: "Extra large", zoom: "1.3" },
+};
+
+// Tailwind's font-sans / font-mono utilities read these two variables, so
+// swapping them on the root element re-fonts the entire app at once.
+export const FONT_FAMILIES: Record<FontFamily, { name: string; sans: string; mono: string }> = {
+  geist: { name: "Geist (default)", sans: "var(--font-geist-sans)", mono: "var(--font-geist-mono)" },
+  system: {
+    name: "System",
+    sans: 'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+    mono: 'ui-monospace, Consolas, "Cascadia Mono", Menlo, monospace',
+  },
+  serif: { name: "Serif", sans: 'Georgia, "Times New Roman", Times, serif', mono: "var(--font-geist-mono)" },
+  mono: { name: "Monospace everywhere", sans: "var(--font-geist-mono)", mono: "var(--font-geist-mono)" },
+};
 
 interface ThemeContextType {
   theme: ThemeMode;
@@ -13,6 +38,10 @@ interface ThemeContextType {
   setColorTheme: (color: ColorTheme) => void;
   cardEdge: CardEdge;
   setCardEdge: (edge: CardEdge) => void;
+  fontScale: FontScale;
+  setFontScale: (scale: FontScale) => void;
+  fontFamily: FontFamily;
+  setFontFamily: (family: FontFamily) => void;
   accentBg: string;
   accentText: string;
   accentBorder: string;
@@ -29,6 +58,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<ThemeMode>("light");
   const [colorTheme, setColorThemeState] = useState<ColorTheme>("charcoal");
   const [cardEdge, setCardEdgeState] = useState<CardEdge>("sharp");
+  const [fontScale, setFontScaleState] = useState<FontScale>("standard");
+  const [fontFamily, setFontFamilyState] = useState<FontFamily>("geist");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -45,7 +76,22 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (storedEdge && ["sharp", "rounded", "playful"].includes(storedEdge)) {
       setCardEdgeState(storedEdge as CardEdge);
     }
+    const storedScale = localStorage.getItem("theme_font_scale");
+    if (storedScale && storedScale in FONT_SCALES) {
+      setFontScaleState(storedScale as FontScale);
+    }
+    const storedFamily = localStorage.getItem("theme_font_family");
+    if (storedFamily && storedFamily in FONT_FAMILIES) {
+      setFontFamilyState(storedFamily as FontFamily);
+    }
   }, []);
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    root.style.setProperty("--font-sans", FONT_FAMILIES[fontFamily].sans);
+    root.style.setProperty("--font-mono", FONT_FAMILIES[fontFamily].mono);
+    window.document.body.style.zoom = FONT_SCALES[fontScale].zoom;
+  }, [fontScale, fontFamily]);
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -67,6 +113,20 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setColorThemeState(color);
     if (typeof window !== "undefined") {
       localStorage.setItem("theme_color", color);
+    }
+  };
+
+  const setFontScale = (scale: FontScale) => {
+    setFontScaleState(scale);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("theme_font_scale", scale);
+    }
+  };
+
+  const setFontFamily = (family: FontFamily) => {
+    setFontFamilyState(family);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("theme_font_family", family);
     }
   };
 
@@ -157,6 +217,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         setColorTheme,
         cardEdge,
         setCardEdge,
+        fontScale,
+        setFontScale,
+        fontFamily,
+        setFontFamily,
         accentBg,
         accentText,
         accentBorder,

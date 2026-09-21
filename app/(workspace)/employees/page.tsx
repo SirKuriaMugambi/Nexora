@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import { useFinOps } from "@/components/finops-provider"
 import { useTheme } from "@/components/theme-provider"
 import { IdCard, Plus, X, Pencil, Trash2, ShieldAlert, Lock, KeyRound } from "lucide-react"
@@ -11,6 +12,7 @@ import { issueCauseOptions } from "@/components/preflight-panel"
 import { PAYROLL_VALIDATION_FIX_FIELD, validatePayrollRows, type PayrollValidationCode } from "@/lib/payroll-validation"
 import { EXCEPTION_KINDS, exceptionDetails, hasException, type ExceptionKind } from "@/lib/employee-exceptions"
 import { CC_NAMES, departmentForCostCentre } from "@/lib/payroll-engine"
+import { describeChanges, variablePayChanges, type VariablePayRow } from "@/lib/variable-pay"
 
 // What the table can be narrowed to: a pre-flight cause, any exception, or one kind of exception.
 type EmployeeFilter = PayrollValidationCode | "statutory_exception" | ExceptionKind
@@ -300,10 +302,26 @@ export default function EmployeesPage() {
   const [editId, setEditId] = useState<string | null>(() => readDeepLink()?.edit ?? null)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<EmployeeFilter | null>(null)
+  // This month's variable pay, so each row can say whether the person is on
+  // standard pay or what has changed — the same view the payroll register has.
+  const [thisMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [variablePay, setVariablePay] = useState<VariablePayRow[]>([])
 
   // Reload after a CRUD mutation (create/update/delete) — kept out of the
   // initial-mount effect below since it's called from multiple places.
+  async function refreshVariablePay() {
+    try {
+      const res = await fetch(`/api/variable-pay?month=${thisMonth}`)
+      if (!res.ok) return
+      const json = (await res.json()) as { rows?: VariablePayRow[] }
+      setVariablePay(json.rows ?? [])
+    } catch {
+      /* the indicator is informational; the table still renders */
+    }
+  }
+
   async function refreshEmployees() {
+    void refreshVariablePay()
     try {
       const response = await fetch("/api/employees")
       const payload = await response.json()
@@ -446,6 +464,12 @@ export default function EmployeesPage() {
     }
     return map
   }, [issues, employees, filter])
+  const changesFor = useMemo(() => {
+    const byEmployee = new Map<string, VariablePayRow[]>()
+    for (const r of variablePay) byEmployee.set(r.employee_id, [...(byEmployee.get(r.employee_id) ?? []), r])
+    return new Map(employees.map((e) => [e.id, variablePayChanges(e, byEmployee.get(e.id) ?? [])]))
+  }, [employees, variablePay])
+
   const visibleEmployees = useMemo(
     () => (filter ? employees.filter((e) => reasonFor.has(e.id)) : employees),
     [employees, filter, reasonFor],
@@ -561,6 +585,7 @@ export default function EmployeesPage() {
                   <th className="px-4 py-2.5">Cost Centre</th>
                   <th className="px-4 py-2.5">Bank</th>
                   <th className="px-4 py-2.5 text-right">Basic Salary</th>
+                  <th className="px-4 py-2.5">This month</th>
                   <th className="px-4 py-2.5 text-center">Exceptions</th>
                   <th className="px-4 py-2.5 text-center">Actions</th>
                 </tr>
@@ -599,6 +624,23 @@ export default function EmployeesPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-mono">{fmt(emp.base_salary)}</td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const changes = changesFor.get(emp.id) ?? []
+                        return changes.length === 0 ? (
+                          <Link href={`/variable-pay?month=${thisMonth}&employee=${emp.id}`} title="Standard pay this month — click to add variable pay"
+                            className="font-mono text-[9px] px-1.5 py-0.5 bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400 whitespace-nowrap hover:opacity-80">
+                            No changes
+                          </Link>
+                        ) : (
+                          <Link href={`/variable-pay?month=${thisMonth}&employee=${emp.id}`} title={describeChanges(changes)}
+                            className="block font-mono text-[9px] text-amber-800 dark:text-amber-300 hover:opacity-80">
+                            <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 whitespace-nowrap">{changes.length} change{changes.length === 1 ? "" : "s"}</span>
+                            <span className="block mt-1 max-w-[220px] whitespace-normal text-[9px]">{describeChanges(changes)}</span>
+                          </Link>
+                        )
+                      })()}
+                    </td>
                     <td className="px-4 py-3 text-center">
                       {hasException(emp) ? (
                         <span className="inline-flex items-center gap-1 text-[9px] font-mono text-amber-600 dark:text-amber-400">
