@@ -4,7 +4,8 @@ import { buildPayrollVarianceReport, computePayroll, type EmployeeSummary } from
 import { createSupabaseAdminClient } from "@/lib/supabase-server"
 import { requireRole } from "@/lib/supabase"
 import { currentPayMonth, rulesForMonth, type KenyaPayrollRules } from "@/lib/payroll-rules-config"
-import { applyVariablePay, variablePayChanges, type VariablePayRow } from "@/lib/variable-pay"
+import { applyVariablePay, variablePayChanges, VARIABLE_PAY_CATEGORY_KEYS, type VariablePayRow } from "@/lib/variable-pay"
+import { LOCKED_RUN_STATUSES } from "@/lib/variable-pay-store"
 
 function normalizeEmployeeRow(row: Record<string, unknown>, rules: KenyaPayrollRules) {
   const input = {
@@ -79,6 +80,70 @@ function normalizeEmployeeRow(row: Record<string, unknown>, rules: KenyaPayrollR
   }
 }
 
+// The register row for a frozen run: figures from the stored entry (as
+// computed when the run was saved), identity and bank fields from Employee
+// Master. Same shape as normalizeEmployeeRow so the page needs no special case.
+function frozenEmployeeRow(entry: Record<string, unknown>, master: Record<string, unknown>) {
+  const num = (v: unknown) => Number(v ?? 0)
+  const gross_paye = num(entry.gross_paye), net_paye = num(entry.net_paye)
+  return {
+    id: String(entry.employee_id),
+    name: String(master.name ?? entry.employee_id),
+    kra_pin: String(master.kra_pin ?? ""),
+    grade: String(master.grade ?? ""),
+    cost_centre: String(master.cost_centre ?? "511"),
+    cost_centre_allocation: (master.cost_centre_allocation as Record<string, number> | null) ?? null,
+    department: String(master.department ?? "Production"),
+    bank_name: master.bank_name != null ? String(master.bank_name) : null,
+    bank_account_number: master.bank_account_number != null ? String(master.bank_account_number) : null,
+    bank_branch_code: master.bank_branch_code != null ? String(master.bank_branch_code) : null,
+    emp_code: master.emp_code != null ? String(master.emp_code) : null,
+    email: master.email != null ? String(master.email) : null,
+    base_salary: num(entry.basic_salary),
+    bonus_commission: num(entry.bonus_commission),
+    fringe_benefit: num(entry.fringe_benefit),
+    transport_allowance: num(entry.transport_allowance),
+    arrears: num(entry.arrears),
+    ot_other: num(entry.ot_other),
+    gross_salary: num(entry.gross_salary),
+    voluntary_pension: num(entry.voluntary_pension),
+    defined_pension_ee: num(entry.defined_pension_ee),
+    defined_pension_er: num(entry.employer_pension),
+    nssf_t1: num(entry.nssf_t1),
+    nssf_t2: num(entry.nssf_t2),
+    shif: num(entry.shif),
+    ahl: num(entry.ahl),
+    taxable_pay: num(entry.taxable_pay),
+    gross_paye,
+    personal_relief: num(entry.personal_relief),
+    nhif_relief: num(entry.nhif_relief),
+    ahl_relief: num(entry.ahl_relief),
+    net_paye,
+    advances: num(entry.advances),
+    helb: num(entry.helb),
+    company_loan: num(entry.company_loan),
+    bank_loan: num(entry.bank_loan),
+    sacco: num(entry.sacco),
+    allowances: num(entry.fringe_benefit) + num(entry.transport_allowance) + num(entry.bonus_commission),
+    deductions: num(entry.total_deductions),
+    nssf: num(entry.nssf_t1) + num(entry.nssf_t2),
+    nhif: num(entry.shif),
+    paye: net_paye,
+    net_salary: num(entry.net_pay),
+    total_deductions: num(entry.total_deductions),
+    // What this run's stored inputs differ from the standard card by — the
+    // same "what changed" view as a live month, read from the record.
+    variable_pay_changes: variablePayChanges(
+      master as unknown as Parameters<typeof variablePayChanges>[0],
+      VARIABLE_PAY_CATEGORY_KEYS.map((category) => ({
+        employee_id: String(entry.employee_id), category,
+        amount: num(entry[category]),
+      })),
+    ),
+    frozen: true,
+  }
+}
+
 export async function GET(request: Request) {
   const guard = await requireRole("finance_manager")
   if (!guard.ok) {
@@ -97,10 +162,27 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 })
   }
 
-  let run: { status: string } | null = null
+  let run: { id?: string; status: string } | null = null
   if (supabase && month) {
-    const { data } = await supabase.from("payroll_runs").select("status").eq("month", month).single()
+    const { data } = await supabase.from("payroll_runs").select("id, status").eq("month", month).single()
     run = data ?? null
+  }
+
+  // A run that has been submitted, approved or posted is a frozen record:
+  // the payslips, journal and bank file were produced from it. The register
+  // for such a month is served from the stored entries, so a later edit to
+  // Employee Master or the variable-pay ledger cannot make the screen
+  // disagree with the documents that went out.
+  if (supabase && run?.id && LOCKED_RUN_STATUSES.includes(run.status)) {
+    const { data: entries } = await supabase.from("payroll_register_entries").select("*").eq("payroll_run_id", run.id)
+    const { data: masters } = await supabase.from("employees").select("*").order("name")
+    if (entries && entries.length > 0 && masters) {
+      const masterById = new Map(masters.map((m) => [String(m.id), m as Record<string, unknown>]))
+      const employees = (entries as Record<string, unknown>[])
+        .map((e) => frozenEmployeeRow(e, masterById.get(String(e.employee_id)) ?? { id: e.employee_id, name: String(e.employee_id) }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+      return NextResponse.json({ employees, run: { status: run.status }, frozen: true })
+    }
   }
 
   if (supabase) {

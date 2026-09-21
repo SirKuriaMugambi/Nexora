@@ -206,6 +206,9 @@ export default function PayrollPage() {
   const [loadingEmployees, setLoadingEmployees] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>("register")
   const [runStatus, setRunStatus] = useState<RunStatus>(null)
+  // True when the month's run is submitted/approved/posted and the register
+  // shown is the stored record rather than a live recompute.
+  const [frozen, setFrozen] = useState(false)
   const [workflowBusy, setWorkflowBusy] = useState(false)
   const [workflowError, setWorkflowError] = useState<string | null>(null)
   const [activeEmpIdx, setActiveEmpIdx] = useState<number | null>(null)
@@ -281,10 +284,11 @@ export default function PayrollPage() {
           throw new Error("Unable to load employees")
         }
 
-        const payload = (await response.json()) as { employees?: Employee[]; run?: { status: RunStatus } | null }
+        const payload = (await response.json()) as { employees?: Employee[]; run?: { status: RunStatus } | null; frozen?: boolean }
         if (!ignore && Array.isArray(payload.employees)) {
           setEmployees(payload.employees)
           setRunStatus(payload.run?.status ?? null)
+          setFrozen(payload.frozen === true)
         }
       } catch {
         if (!ignore) {
@@ -908,7 +912,12 @@ export default function PayrollPage() {
             <div className="text-[10px] font-mono uppercase text-zinc-400">Loading payroll data from Supabase…</div>
           )}
 
-          {!loadingEmployees && employees.length > 0 && (
+          {!loadingEmployees && frozen && (
+            <div className={`p-3 border border-zinc-200 bg-zinc-50/60 dark:bg-zinc-900/30 dark:border-zinc-800 text-[11px] text-zinc-600 dark:text-zinc-400 ${cardRadius}`}>
+              This run is <b className="font-mono">{runStatus}</b>. The figures below are the ones that were {runStatus === "Submitted" ? "submitted" : "approved"} — the payslips, journal and bank file came from them — so later edits to Employee Master or variable pay do not change this screen. Reject the run to recompute it.
+            </div>
+          )}
+          {!loadingEmployees && !frozen && employees.length > 0 && (
             <div className={`p-3 border text-[11px] flex flex-wrap items-center justify-between gap-2 ${changedEmployees.length > 0
               ? "border-amber-200 bg-amber-50/40 dark:bg-amber-950/20 dark:border-amber-900 text-amber-700 dark:text-amber-400"
               : "border-zinc-200 bg-zinc-50/60 dark:bg-zinc-900/30 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400"} ${cardRadius}`}>
