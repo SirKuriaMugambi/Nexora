@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react"
 import { KeyRound, Lock, RefreshCw } from "lucide-react"
+import { StaffAccountsPanel } from "@/components/staff-accounts-panel"
 
 interface PendingSignup {
   id: string
@@ -140,6 +141,8 @@ export default function PendingSignupsPage() {
           })}
         </div>
       )}
+
+      <StaffAccountsPanel />
     </div>
   )
 }

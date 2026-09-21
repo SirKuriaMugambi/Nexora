@@ -6,6 +6,9 @@ const PUBLIC_PATHS = ["/", "/sign-in", "/sign-up", "/access-ended", "/verify-cod
 // must stay reachable even while otp_verified is false, or nobody could
 // ever complete the flow.
 const OTP_API_PATHS = ["/api/signup-otp/request", "/api/signup-otp/verify"]
+// Where an account with a temporary password is sent, and the one API it may call.
+const CHANGE_PASSWORD_PATH = "/change-password"
+const CHANGE_PASSWORD_API_PATH = "/api/account/password"
 // The employee portal's own login (email + last 4 of KRA PIN) — unlike the
 // two above, this runs with NO session at all (that's the entire point: an
 // employee arrives with nothing but their email), so it needs to be
@@ -84,14 +87,16 @@ export async function proxy(request: NextRequest) {
   // instead of querying separately for each — otp_verified/role together.
   let role: string | null = null
   let otpVerified: boolean | null = null
+  let mustChangePassword = false
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role, otp_verified")
+      .select("role, otp_verified, must_change_password")
       .eq("id", user.id)
       .single()
     role = profile?.role ?? null
     otpVerified = profile?.otp_verified ?? null
+    mustChangePassword = profile?.must_change_password === true
   }
 
   const isEvalLockExempt =
@@ -134,6 +139,16 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(new URL("/verify-code", request.url))
     }
     return response
+  }
+
+  // Temporary-password gate: an account the owner has just given a
+  // temporary password to can reach nothing but the page that sets a real
+  // one (and the route behind it) until it has done so.
+  if (user && mustChangePassword && pathname !== CHANGE_PASSWORD_PATH && pathname !== CHANGE_PASSWORD_API_PATH) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Set a new password to continue." }, { status: 403 })
+    }
+    return NextResponse.redirect(new URL(`${CHANGE_PASSWORD_PATH}?required=1`, request.url))
   }
 
   // Employee self-service portal: role='employee' may reach ONLY its own

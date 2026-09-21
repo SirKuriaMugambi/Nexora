@@ -119,6 +119,12 @@ npm run build        # what Vercel runs
 
 - Staff sign in at `/sign-in` (email + password). New accounts are frozen
   until they enter a code sent only to `NEXORA_OWNER_EMAIL`.
+- Lost password: the owner sets a temporary one from `/admin/pending-signups`
+  (Staff accounts → `POST /api/admin/staff-accounts`), hands it over in
+  person, and `profiles.must_change_password` confines that account to
+  `/change-password` (`POST /api/account/password`, current password
+  required, rate-limited) until it picks its own. Nothing is emailed.
+  `lib/password-policy.ts` is the one rule both doors apply.
 - Employees sign in at `/employee-login` (email + last 4 of their KRA PIN),
   and can reach only `/my-portal` and `/api/my/*` — enforced in `proxy.ts`.
 - Payroll, Variable Pay, Employee Master and Staff Documents are `finance_manager`-only,

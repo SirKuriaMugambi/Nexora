@@ -33,6 +33,7 @@ import {
   Laptop,
   Check,
   LogOut,
+  KeyRound,
   ArrowRight,
   Clock,
   Briefcase,
@@ -261,6 +262,13 @@ export default function WorkspaceLayout({
                 {currentUser}
               </span>
             </div>
+            <Link
+              href="/change-password"
+              title="Change password"
+              className={`p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 dark:hover:text-zinc-200 dark:hover:bg-zinc-900 ${buttonRadius} transition-colors`}
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+            </Link>
             <button
               onClick={handleSignOut}
               title="Sign out"
