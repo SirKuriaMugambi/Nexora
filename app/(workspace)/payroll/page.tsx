@@ -20,6 +20,7 @@ import { rulesForMonth } from "@/lib/payroll-rules-config"
 import { validatePayrollRows } from "@/lib/payroll-validation"
 import { PreflightPanel } from "@/components/preflight-panel"
 import { describeChanges } from "@/lib/variable-pay"
+import { noteInAppNavigation } from "@/components/back-button"
 import ModuleLock from "@/components/module-lock"
 import type { Employee } from "@/lib/seeds"
 
@@ -194,7 +195,8 @@ function PayslipPanel({ emp, onClose }: {
 }
 
 // ── MAIN PAGE ────────────────────────────────────────────────────────────────
-type Tab = "register" | "statutory" | "gl" | "calculator"
+const TABS = ["register", "statutory", "gl", "calculator"] as const
+type Tab = (typeof TABS)[number]
 
 type RunStatus = "Draft" | "Submitted" | "Approved" | "Rejected" | "Posted" | null
 
@@ -204,7 +206,34 @@ export default function PayrollPage() {
 
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loadingEmployees, setLoadingEmployees] = useState(true)
-  const [activeTab, setActiveTab] = useState<Tab>("register")
+  const [activeTab, setActiveTabState] = useState<Tab>(() => {
+    if (typeof window === "undefined") return "register"
+    const tab = new URLSearchParams(window.location.search).get("tab")
+    return TABS.includes(tab as Tab) ? (tab as Tab) : "register"
+  })
+
+  // Each tab becomes a history entry, so Back returns to the previous tab
+  // before leaving the page. Done with pushState rather than router.push
+  // so switching tabs never re-runs the page's data loading.
+  function setActiveTab(tab: Tab) {
+    setActiveTabState(tab)
+    if (typeof window === "undefined") return
+    const url = new URL(window.location.href)
+    url.searchParams.set("tab", tab)
+    window.history.pushState(null, "", url)
+    noteInAppNavigation()
+  }
+
+  // Browser Back/Forward changes the URL without remounting this page, so
+  // the tab has to follow the URL when that happens.
+  useEffect(() => {
+    function syncTabFromUrl() {
+      const tab = new URLSearchParams(window.location.search).get("tab")
+      setActiveTabState(TABS.includes(tab as Tab) ? (tab as Tab) : "register")
+    }
+    window.addEventListener("popstate", syncTabFromUrl)
+    return () => window.removeEventListener("popstate", syncTabFromUrl)
+  }, [])
   const [runStatus, setRunStatus] = useState<RunStatus>(null)
   // True when the month's run is submitted/approved/posted and the register
   // shown is the stored record rather than a live recompute.

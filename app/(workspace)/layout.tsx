@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useFinOps } from "@/components/finops-provider";
 import { useTheme, ColorTheme, CardEdge, FONT_SCALES, FONT_FAMILIES, type FontScale, type FontFamily } from "@/components/theme-provider";
 import Logo from "@/components/logo";
+import BackButton from "@/components/back-button";
 import {
   LayoutDashboard,
   CheckSquare,
@@ -364,6 +365,8 @@ export default function WorkspaceLayout({
             >
               <Menu className="h-4 w-4" />
             </button>
+
+            <BackButton className={buttonRadius} />
 
             {/* Path Display */}
             <div className="hidden sm:flex items-center gap-1.5 font-mono text-[10px] text-zinc-400 dark:text-zinc-500">

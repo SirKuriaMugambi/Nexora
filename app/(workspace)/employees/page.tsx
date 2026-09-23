@@ -338,13 +338,25 @@ export default function EmployeesPage() {
   useEffect(() => {
     let ignore = false
 
-    async function loadInitialEmployees() {
+    async function loadInitial() {
       try {
-        const response = await fetch("/api/employees")
-        const payload = await response.json()
+        // Both together: the "This month" column needs the ledger, and the
+        // two requests each pay their own auth round trip, so firing them
+        // in parallel costs one request's wall time rather than two.
+        const [employeeRes, variablePayRes] = await Promise.all([
+          fetch("/api/employees"),
+          fetch(`/api/variable-pay?month=${thisMonth}`),
+        ])
+        const payload = await employeeRes.json()
         if (ignore) return
-        if (!response.ok) throw new Error(payload.error ?? "Failed to load employees")
+        if (!employeeRes.ok) throw new Error(payload.error ?? "Failed to load employees")
         setEmployees(payload.employees ?? [])
+        // The change indicator is informational — a failure here leaves the
+        // table fully usable, so it must not surface as a page error.
+        if (variablePayRes.ok) {
+          const ledger = (await variablePayRes.json()) as { rows?: VariablePayRow[] }
+          if (!ignore) setVariablePay(ledger.rows ?? [])
+        }
       } catch (err) {
         if (!ignore) setError(err instanceof Error ? err.message : "Failed to load employees")
       } finally {
@@ -352,9 +364,9 @@ export default function EmployeesPage() {
       }
     }
 
-    loadInitialEmployees()
+    loadInitial()
     return () => { ignore = true }
-  }, [])
+  }, [thisMonth])
 
   const editing = useMemo(() => employees.find((e) => e.id === editId), [employees, editId])
   useEffect(() => {
@@ -512,9 +524,9 @@ export default function EmployeesPage() {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {[
-          { label: "Headcount", value: employees.length.toString() },
-          { label: "Statutory Exceptions", value: exceptionCount.toString() },
-          { label: "Placeholder Cost Centres", value: employees.filter((e) => e.cost_centre === "511").length.toString() },
+          { label: "Headcount", value: loading ? "—" : employees.length.toString() },
+          { label: "Statutory Exceptions", value: loading ? "—" : exceptionCount.toString() },
+          { label: "Placeholder Cost Centres", value: loading ? "—" : employees.filter((e) => e.cost_centre === "511").length.toString() },
         ].map((card) => (
           <div key={card.label} className={`p-4 border border-zinc-200 dark:border-zinc-900 bg-white dark:bg-zinc-950 flex flex-col justify-between h-16 ${cardRadius}`}>
             <span className="text-[9px] font-mono uppercase text-zinc-400">{card.label}</span>
@@ -557,7 +569,7 @@ export default function EmployeesPage() {
       <div className={`border border-zinc-200 dark:border-zinc-900 bg-white dark:bg-zinc-950 overflow-hidden ${cardRadius}`}>
         <div className="px-5 py-3 border-b dark:border-zinc-900 flex items-center gap-2">
           <IdCard className="h-4 w-4 text-zinc-400" />
-          <h3 className="text-xs font-mono uppercase tracking-wider font-bold">Employee Master ({employees.length})</h3>
+          <h3 className="text-xs font-mono uppercase tracking-wider font-bold">Employee Master ({loading ? "…" : employees.length})</h3>
         </div>
         {!loading && filterOptions.length > 0 && (
           <div className="px-5 py-2.5 border-b dark:border-zinc-900 space-y-1.5">
@@ -571,7 +583,20 @@ export default function EmployeesPage() {
         )}
 
         {loading && (
-          <div className="p-5 text-[10px] font-mono uppercase text-zinc-400">Loading employee master from Supabase…</div>
+          <div className="divide-y divide-zinc-100 dark:divide-zinc-900 animate-pulse" aria-busy="true" aria-live="polite">
+            <span className="sr-only">Loading employee master…</span>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="px-5 py-3 flex items-center gap-4">
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  <div className="h-3 w-40 max-w-full bg-zinc-200/70 dark:bg-zinc-800/70 rounded" />
+                  <div className="h-2 w-24 max-w-full bg-zinc-200/70 dark:bg-zinc-800/70 rounded" />
+                </div>
+                <div className="h-3 w-24 shrink-0 hidden sm:block bg-zinc-200/70 dark:bg-zinc-800/70 rounded" />
+                <div className="h-3 w-20 shrink-0 hidden md:block bg-zinc-200/70 dark:bg-zinc-800/70 rounded" />
+                <div className="h-3 w-16 shrink-0 bg-zinc-200/70 dark:bg-zinc-800/70 rounded" />
+              </div>
+            ))}
+          </div>
         )}
 
         {!loading && (
